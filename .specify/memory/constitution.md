@@ -1,50 +1,133 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+同步影响报告
+- 版本变更：1.2.0 → 1.2.1（澄清正式片段的物理写入与检索发布边界）。
+- 修订原则：V. 版本一致、可追溯的检索与回答（明确 embed 直写、finalize 发布及统一仓储读取）。
+- 新增原则：无。
+- 移除章节：无。
+- 已更新模板：.specify/templates/plan-template.md、.specify/templates/spec-template.md、
+  .specify/templates/tasks-template.md。
+- 无需更新的模板：.specify/templates/commands/ 不存在；无可检查的命令模板。
+- 后续事项：无。
+-->
 
-## Core Principles
+# OrionaMesh 项目宪章
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+## 核心原则
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### I. 租户数据隔离与服务端授权（不可协商）
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+所有用户、知识库、文档、任务、会话、消息和引用的读写操作必须在服务端依据当前
+已认证用户进行授权。查询和变更必须校验资源的 `user_id` 归属；知识库标识必须从
+已授权的会话或已验证的资源关系取得，禁止信任客户端任意传入的知识库或用户标识。
+`chunks`、`document_tasks`、`document_chunk_drafts` 及其他按租户访问的派生表必须保存
+`user_id`，即使该值可经外键推导，也不得省略这一防御性边界。涉及检索的 SQL 必须以
+`c.user_id = $1`、`c.knowledge_base_id = $2`、当前文档版本和已完成状态为强制过滤条件；
+向量与关键词召回均不得绕过该过滤。该原则保障个人知识库的隐私边界，任何绕过均视为
+阻断性缺陷。
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### II. 异步流水线与可恢复状态（不可协商）
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+文档处理必须通过 `upload → parse → chunk → embed → finalize → cleanup` 的异步流水线
+执行，不得阻塞上传接口。每个阶段必须由可追踪任务和尝试记录表达，包含阶段状态、
+错误信息与重试信息；上传文件、文档记录和初始任务必须保持一致，失败后可安全重试。
+`cleanup` 只能清理旧版本派生数据，绝不得影响当前可检索版本。该原则避免部分成功导致
+不可追溯的脏数据，并使中断与故障可以诊断和恢复。
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### III. 数据库是任务状态的单一真相源（不可协商）
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+`documents`、`document_tasks` 与 `document_task_attempts` 中持久化的状态和时间戳是文档
+处理的唯一业务真相源。Celery、Redis、队列监控或 SSE 连接只负责投递、执行与传输，
+不得作为任务成功、失败、取消、重试或用户展示状态的唯一依据。任何状态变更必须先以
+可审计方式写入数据库；读取任务状态、恢复中断任务和对用户展示进度时必须以数据库
+记录为准。该原则防止执行器状态丢失、过期或不一致时使任务永久显示“处理中”。
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### IV. 无半成品可见状态（不可协商）
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+面向用户的文档和任务状态必须最终收敛至明确结果：`completed`、`failed`、`cancelled` 或
+已定义且语义等价的终态；不得以悬挂的 `pending`、`queued`、`processing` 或断开的 SSE
+连接掩盖未知结果。SSE 中断、工作进程退出或重试耗尽后，系统必须通过数据库状态恢复、
+继续执行或收敛为明确失败。`finalize` 前必须校验本次文档版本的正式分块数量、版本与
+任务结果一致；校验失败时不得将文档标记为完成或对检索可见。系统宁可明确报错，也
+不得向用户展示伪完成、无限处理中或不可诊断的半成品状态。
 
-## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
+### V. 版本一致、可追溯的检索与回答（不可协商）
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+`embed` 可以按幂等批次把已嵌入分块直接写入正式 `chunks` 表；在 `finalize` 校验成功并将
+资料翻转为 `completed` 前，这些行属于未发布数据，绝不得对业务或检索可见。所有 `chunks`
+读取必须经过统一仓储：检索读取强制 `JOIN documents` 并过滤当前用户、知识库、
+`documents.status = completed` 与 `chunks.document_version = documents.version`；流水线内部读取
+只允许按当前用户、知识库、资料和精确版本执行计数或校验。任何业务服务、worker 或路由
+不得直接查询 `chunks`。每个分块必须保留来源文档、文档版本、分块策略、嵌入模型及页码或
+章节等引用元数据。向量和关键词召回必须同时提供，结果经融合、可选重排和上下文打包后
+才可生成回答。每条基于知识库生成的回答必须保存
+可解析的来源引用；检索为空或证据不足时必须明确告知用户，禁止将无依据内容伪装成
+知识库结论。
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+### VI. 身份、凭证与数据安全（不可协商）
+
+密码必须使用强哈希存储；刷新令牌仅能保存哈希，并在刷新时轮换、撤销旧会话和记录
+轮换关系。短期访问令牌、会话撤销、资源归属校验和请求限流必须在服务端执行。日志、
+错误响应、任务诊断和引用中不得泄露密码、令牌或不属于当前用户的文件内容。所有新增
+存储、缓存和外部调用必须说明其数据边界与敏感信息处理方式。
+
+### VII. 可观测、可降级与最小充分实现
+
+核心业务操作必须记录结构化日志，并能从文档状态、任务尝试、处理耗时和错误原因
+诊断问题。MVP 必须部署并验证 `pgvector` 与 `pg_trgm`；中文分词扩展和重排器属于可选
+增强，缺失时必须以既定检索或融合结果安全降级。新增复杂度、基础设施或可配置项必须
+以当前用户价值和可验证需求为依据；未证明必要性时采用设计文档规定的 MVP 默认值。
+
+### VIII. 前后端分离、RESTful API 与职责清晰（不可协商）
+
+前端仅负责界面呈现、用户交互、客户端状态与经后端授权的数据展示；认证授权、业务
+规则、数据访问、文档处理、异步任务调度和敏感信息处理必须由后端负责。前端不得绕过
+后端直接访问数据库、任务队列、对象存储或以客户端逻辑替代服务端授权。
+
+前后端必须通过版本化 RESTful API 契约协作：使用资源导向的路径、语义正确的 HTTP
+方法、一致的状态码和稳定的错误响应结构；SSE 仅用于对话消息等单向流式传输，不替代
+资源的创建、查询、更新或删除契约。路由层负责协议转换和输入输出，服务层负责业务
+编排，数据访问层负责持久化，任务执行层负责后台执行；各层不得承担其他层的业务职责。
+跨层共享的数据结构和接口契约必须集中维护并经版本管理，避免重复规则和隐式耦合。
+
+## 架构与安全约束
+
+- 系统定位为面向个人与轻量团队的开源 C 端 RAG 应用，而非通用基础设施库。
+- 前端采用 Next.js、React、TypeScript、Tailwind CSS 和 Shadcn；后端采用 FastAPI、
+  Pydantic、LangChain、Celery、Redis、PostgreSQL、pgvector、JWT 与结构化日志方案。
+  偏离这些基线必须在实施计划中记录理由和迁移影响。
+- 检索入口以会话绑定的 `user_id` 和 `knowledge_base_id` 为准。向量与关键词召回均须
+  `JOIN documents`，并以 `c.user_id = $1`、`c.knowledge_base_id = $2`、当前版本和完成
+  状态进行过滤。
+- Celery 和 Redis 是异步执行基础设施，不是业务状态存储；所有状态转换、重试决策和
+  用户可见进度均必须从 PostgreSQL 中的文档、任务和尝试记录派生。
+- 文档内容、解析结果和派生数据的存储路径必须与具体后端无关；业务代码不得依赖本地
+  绝对路径，以便安全迁移到对象存储。
+- 对话回答通过 SSE 流式传输；API 必须使用一致的 HTTP 状态码和错误码，前端不得以
+  错误文本推断业务状态。
+- 前后端通过版本化 RESTful API 契约交互。路由、服务、数据访问和任务执行保持职责
+  分离；客户端不得直接访问后端基础设施或替代服务端业务与授权逻辑。
+
+## 研发流程与质量门禁
+
+- 每项功能规格必须声明用户故事、可测验收条件，以及对租户隔离、任务状态真相源、
+  文档终态、版本、引用、降级行为及前后端 API 契约的影响；不适用时必须明确说明理由。
+- 实施计划在研究前及设计完成后必须完成宪章检查。任何原则例外都必须记录替代方案、
+  风险、批准者和退出或迁移计划。
+- 涉及认证、授权、上传、文档流水线、检索、引用、数据库迁移或 API 契约的改动，必须
+  提供相应的自动化测试。至少覆盖跨用户访问拒绝、数据库状态与执行器状态不一致时的
+  恢复、失败或中断后的明确终态、finalize 分块一致性校验、旧版本与未完成文档排除、
+  检索引用正确性及降级路径。
+- 合并前必须验证数据库迁移及必需扩展、接口契约、受影响的自动化测试和日志中不含
+  敏感凭证。无法执行的验证必须记录原因、风险和后续责任人。
+
+## 治理
+
+本宪章优先于仓库内与其冲突的开发惯例。任何成员均可提出修订；修订必须说明动机、
+受影响的原则与模板、兼容性影响以及必要的迁移计划，并经项目维护者批准后合并。
+
+版本采用语义化规则：移除或重新定义既有不可协商原则时递增主版本；新增原则或实质性
+扩展约束时递增次版本；仅澄清措辞、修正示例或排版时递增修订版本。每个实施计划和
+代码审查都必须检查并记录宪章符合性；发现偏离时，必须在合并前修复或取得有时限的
+例外批准。
+
+**版本**：1.2.1 | **批准日期**：2026-08-11 | **最后修订**：2026-08-12

@@ -126,3 +126,16 @@
 - [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
 - [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
 - [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+
+## 宪章影响
+
+<!--
+  必须说明本功能对租户隔离、文档处理状态、版本一致性、回答引用、凭证安全、
+  可观测性和降级策略的影响；不适用的项目必须给出理由。
+-->
+
+- **租户与授权**：[服务端如何校验当前用户与资源归属；派生表 `user_id`、片段统一读取边界与检索过滤方式]
+- **状态与版本**：[数据库真相源、终态收敛、SSE 中断恢复、重试、幂等、当前版本和清理]
+- **检索与引用**：[召回过滤、证据不足行为及引用保留方式]
+- **安全与可观测性**：[敏感数据边界、日志、指标、限流与降级]
+- **架构与 API 契约**：[前后端责任边界、RESTful 资源与版本策略、SSE 范围和分层职责]
