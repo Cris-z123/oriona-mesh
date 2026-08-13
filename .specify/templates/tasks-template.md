@@ -68,6 +68,8 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T007 Create base models/entities that all stories depend on
 - [ ] T008 Configure error handling and logging infrastructure
 - [ ] T009 Setup environment configuration management
+- [ ] T010 验证数据库迁移及 `pgvector`、`pg_trgm` 必需扩展
+- [ ] T011 建立服务端租户归属校验、结构化日志与敏感信息脱敏机制
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -155,6 +157,10 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
+- [ ] TXXX 验证跨用户访问拒绝、派生表租户边界、数据库与执行器状态不一致时的恢复、
+  SSE 中断后的终态收敛、embed 直写与 finalize 发布边界、片段统一仓储读取、未完成或旧版本
+  文档排除、引用正确性与降级路径
+- [ ] TXXX 验证 RESTful API 契约、SSE 使用范围、前后端访问边界和路由/服务/数据访问/任务执行层职责
 - [ ] TXXX Run quickstart.md validation
 
 ---
