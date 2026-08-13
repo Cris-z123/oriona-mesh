@@ -72,13 +72,13 @@ WHERE c.user_id = $1
 
 #### RAG 策略默认值
 
-MVP 阶段先使用固定策略，后续再抽成可配置项。
+MVP 阶段保持 Top-K、RRF、Context Pack 等检索策略的固定默认值；证据门槛（`RETRIEVAL_VECTOR_MIN_SIMILARITY`、`RETRIEVAL_TRGM_MIN_SIMILARITY`）允许通过配置覆盖。
 
 |环节|MVP 默认策略|说明|
 |---|---|---|
 |Query Rewrite|结合最近 3 轮历史消息，用低成本 LLM 改写|只处理省略指代、上下文补全，不主动扩展问题范围|
-|向量召回|Top-K=10|基于 `pgvector` cosine distance|
-|关键词召回|Top-K=10|MVP 默认使用 `pg_trgm`；`pg_jieba` / `zhparser` 作为可选增强|
+|向量召回|Top-K=10，余弦相似度 ≥ 0.65|低于阈值的候选不进入 RRF；阈值可配置|
+|关键词召回|Top-K=10，pg_trgm 相似度 ≥ 0.30|低于阈值的候选不进入 RRF；`pg_jieba` / `zhparser` 作为可选增强|
 |融合排序|RRF|合并双路召回结果，按 `chunk_id` 去重|
 |Reranker|MVP 提供可选 API/本地适配器，但默认部署不要求启用|模型未配置或调用失败时直接使用 RRF 结果；默认启用与质量调优延期至 Phase 2|
 |Context Pack|最多 3000 tokens，最终 5-8 个 chunks|按 rerank score 优先，相邻 chunk 可合并|
@@ -99,7 +99,7 @@ MVP 阶段先使用固定策略，后续再抽成可配置项。
 - `pg_jieba` / `zhparser` 是可选增强，只能放在独立可选迁移中，不能阻塞基础迁移。
 - 向量检索必须 `JOIN documents`，并强制过滤 `c.user_id`、`c.knowledge_base_id`、`c.document_version = d.version`、`d.status = 'completed'`。这保证租户隔离和版本正确性，但 HNSW 与过滤条件结合后可能出现性能波动。
 - MVP 数据量较小时可以先使用全局 HNSW + tenant filter；如果单库 chunks 明显增长，优先演进为按 `knowledge_base_id` 分区或独立向量集合。
-- 召回结果为空时，不应直接生成普通回答；应返回“知识库中未找到相关内容”，并允许用户换问法或检查文档处理状态。
+- 两路候选必须先分别通过相似度门槛，再进入 RRF；融合后为空时，不应直接生成普通回答或调用生成模型，应返回“知识库中未找到相关内容”，并允许用户换问法或检查文档处理状态。`RETRIEVAL_VECTOR_MIN_SIMILARITY` 默认 `0.65`，`RETRIEVAL_TRGM_MIN_SIMILARITY` 默认 `0.30`，均可通过配置覆盖。
 
 #### 技术栈
 
@@ -127,7 +127,8 @@ MVP 阶段先使用固定策略，后续再抽成可配置项。
 #### Deploy
 
 - Docker
-- Github
+- GitHub Actions
+- GitHub Container Registry（GHCR）
 
 ### 数据模型
 
@@ -171,7 +172,7 @@ CREATE TABLE users (
 |字段|类型|说明|
 |---|---|---|
 |id|UUID|主键|
-|email|VARCHAR(255)|唯一，登录凭证|
+|email|VARCHAR(255)|唯一，登录凭证；服务端先去除首尾 Unicode 空白、完成格式校验，再对完整邮箱执行 Unicode `casefold`。注册冲突、登录查询和账号限流 HMAC 必须复用该唯一规范化函数|
 |password_hash|VARCHAR(255)|bcrypt 哈希|
 |display_name|VARCHAR(100)|展示名称，可为空|
 |created_at / updated_at|TIMESTAMPTZ|创建/更新时间|
@@ -214,11 +215,12 @@ WHERE revoked_at IS NULL;
 
 **Token 策略：**
 
-- access token 使用短有效期 JWT，MVP 默认 2 小时（7200 秒）。
-- refresh token 使用随机高熵字符串，只在 `auth_sessions.refresh_token_hash` 中保存哈希。
-- `PUT /auth/sessions` 刷新时必须轮换 refresh token：旧 session 标记 `revoked_at`，创建新 session，并通过 `rotated_from_session_id` 关联。
+- access token 固定使用 `HS256` JWT，包含 `sub`、`iat`、`exp` 与 `type=access`，有效期 2 小时（7200 秒）；签名密钥由必填 `AUTH_JWT_SECRET_KEY` 注入，UTF-8 编码后至少 32 字节，验证端只允许 `HS256`，缺失或不合规时应用不得报告就绪。Access Token 缺失、Bearer 格式错误、签名或算法无效、必填声明错误、`type` 错误或过期均统一返回 `10001/401` 与“请重新登录”；`10004/401` 仅用于登录邮箱或密码不匹配。
+- refresh token 固定使用 32 字节 CSPRNG 随机值，经无填充 Base64URL 编码并加 `rt_` 前缀（总长 46 字符）；明文只返回客户端一次，服务端仅在 `auth_sessions.refresh_token_hash` 保存其 SHA-256 摘要，不编码为 JWT。
+- `PUT /auth/sessions` 刷新时必须在同一数据库事务中按 `refresh_token_hash` 锁定旧 session；只有锁定后仍未撤销且未过期的 session 才能轮换。事务内将旧 session 标记 `revoked_at`、创建新 session，并通过 `rotated_from_session_id` 关联；同一 refresh token 的并发后到请求在取得锁后必须因旧 session 已撤销而返回 `10006/401`，不得创建第二个后继 session。
 - `DELETE /auth/sessions` 登出时按当前 refresh token 找到 session 并置 `revoked_at`。
-- 如果已撤销 session 的 refresh token 再次被使用，视为疑似重放，可撤销该用户当前所有 active sessions。
+- 如果已撤销 session 的 refresh token 再次被使用，视为疑似重放；MVP 仅拒绝本次刷新并返回
+  `10006/401 INVALID_REFRESH_TOKEN`，不得连带撤销该用户的其他 active sessions。
 
 ---
 
@@ -230,9 +232,15 @@ CREATE TABLE knowledge_bases (
     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name        VARCHAR(120) NOT NULL,
     description TEXT,
-    status      VARCHAR(20) NOT NULL DEFAULT 'active', -- active | deleting
+    status      VARCHAR(20) NOT NULL DEFAULT 'active', -- active | deleting | delete_failed
+    delete_error_code INTEGER,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_kb_status CHECK (status IN ('active', 'deleting', 'delete_failed')),
+    CONSTRAINT ck_kb_delete_error CHECK (
+        (status = 'delete_failed' AND delete_error_code = 20015)
+        OR (status <> 'delete_failed' AND delete_error_code IS NULL)
+    )
 );
 
 CREATE INDEX idx_kb_user_id ON knowledge_bases(user_id);
@@ -244,7 +252,8 @@ CREATE INDEX idx_kb_user_id ON knowledge_bases(user_id);
 |user_id|UUID|外键，用户隔离核心字段|
 |name|VARCHAR(120)|知识库名称，最多 120 字符|
 |description|TEXT|描述，可为空|
-|status|VARCHAR(20)|内部删除编排状态；`deleting` 时从所有公开读取和检索入口隐藏|
+|status|VARCHAR(20)|`active` / `deleting` / `delete_failed`；`deleting` 从列表和详情隐藏，`delete_failed` 在所属用户知识库列表/详情中仅返回最小删除失败墓碑，子资源仍不可见|
+|delete_error_code|INTEGER|仅 `delete_failed` 时为 `20015`，否则为空|
 
 > **用户隔离策略**：所有查询必须携带 `user_id` 条件。行级安全（RLS）可在后期启用。
 
@@ -265,12 +274,13 @@ CREATE TABLE documents (
     content_hash      VARCHAR(128),             -- 完整性/诊断用途，不唯一，不作为重复上传去重键
     status            VARCHAR(20) NOT NULL DEFAULT 'pending',
     -- pending | queued | processing | completed | failed | deleting | deleted
-    error_code        INTEGER,                 -- 异步失败业务码：20001 / 20010～20014 / 50000
+    error_code        INTEGER,                 -- 异步失败业务码：20001 / 20010～20015 / 50000
     error_message     TEXT,
     chunk_count       INTEGER DEFAULT 0,
     version           INTEGER NOT NULL DEFAULT 1,
     current_task_type VARCHAR(32),
     retry_count       INTEGER NOT NULL DEFAULT 0,
+    delete_cycle      INTEGER NOT NULL DEFAULT 0 CHECK (delete_cycle >= 0),
     processing_started_at  TIMESTAMPTZ,
     processing_finished_at TIMESTAMPTZ,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -285,18 +295,19 @@ CREATE INDEX idx_doc_upload_batch ON documents(user_id, upload_batch_id, status)
 
 |字段|类型|说明|
 |---|---|---|
-|status|VARCHAR|`pending` → `queued` → `processing` → `completed` / `failed`；删除为 `deleting` → `deleted`|
+|status|VARCHAR|`pending` → `queued` → `processing` → `completed` / `failed`；删除为 `deleting` → `deleted`，删除清理重试耗尽则回到 `failed` 并以 `current_task_type=delete_cleanup` 区分|
 |storage_path|TEXT|原始文件存储路径，MVP 为本地磁盘相对路径，例如 `uploads/{user_id}/{document_id}/source.pdf`|
 |upload_batch_id|UUID|内部上传批次标识，用于整批文件转正、补偿和恢复；不作为外部业务资源 ID|
 |content_hash|VARCHAR|完整性与诊断哈希；不唯一，内容相同的文件仍是独立资料|
 |error_code / error_message|INTEGER / TEXT|异步失败的持久化业务码与安全提示；详情轮询仍返回 HTTP 200|
 |chunk_count|INTEGER|入库成功后回写，方便展示|
 |version|INTEGER|文档内容版本，重新上传、编辑或重建分块时递增|
-|current_task_type|VARCHAR|当前处理阶段：`parse` / `chunk` / `embed` / `finalize`|
-|retry_count|INTEGER|文档级重试次数汇总，方便前端和排障展示|
+|current_task_type|VARCHAR|当前处理阶段：`parse` / `chunk` / `embed` / `finalize`；删除清理失败时为 `delete_cleanup`|
+|retry_count|INTEGER|镜像 `current_task_type` 对应任务已启动的重试次数，不做全流水线累计；初次执行为 0，每启动一次重试递增 1，切换到下一阶段或新建删除轮次时重置为 0，完成且 `current_task_type=null` 时为 0|
+|delete_cycle|INTEGER|已发起的删除清理轮次；首次删除及 `failed/delete_cleanup` 后重试时递增，`deleting` 状态幂等重放不递增，用于审计和运维告警|
 |processing_started_at / processing_finished_at|TIMESTAMPTZ|处理开始/结束时间，用于耗时统计|
 
-> `documents.status` 是用户视角状态，适合前端列表和详情轮询；任务内部阶段以 `document_tasks.status` 为准。`current_task_type` 表示当前或即将执行的流水线阶段，因此文档刚创建且状态仍为 `pending` / `queued` 时可以显示为 `parse`；`completed` 后置为 `null`；`failed` 时保留失败阶段，方便用户知道卡在哪一步。
+> `documents.status` 是用户视角状态，适合前端列表和详情轮询；任务内部阶段以 `document_tasks.status` 为准。`current_task_type` 表示当前或即将执行的流水线阶段，因此文档刚创建且状态仍为 `pending` / `queued` 时可以显示为 `parse`；`completed` 后置为 `null`；普通处理失败时保留失败阶段。若 `failed` 且 `current_task_type = delete_cleanup`，则表示删除未完成：仅向资料所属用户暴露最小墓碑和“重试删除”操作，不得按普通处理失败资料展示。
 
 ---
 
@@ -458,8 +469,8 @@ CREATE INDEX idx_msg_user_conv_created ON messages(user_id, conversation_id, cre
 
 |字段|类型|说明|
 |---|---|---|
-|status|VARCHAR|消息状态。user 消息通常直接为 `completed`；assistant 流式生成时先为 `streaming`|
-|finish_reason|VARCHAR|assistant 结束原因：`stop` / `length` / `error` / `cancelled`|
+|status|VARCHAR|消息状态。user 消息直接为 `completed`；assistant 流式生成时先为 `streaming`，正常完成或可信无证据答复为 `completed`，供应商/模型/服务错误重试耗尽为 `failed`，客户端连接断开为 `cancelled`。API 进程失联时，维护扫描器以 `status=streaming AND created_at < now()-MESSAGE_STREAMING_STALE_SECONDS` 条件更新为 `failed`|
+|finish_reason|VARCHAR|assistant 结束原因：正常为 `stop` / `length`，失败为 `error`，客户端连接断开为 `cancelled`；与 status 配对且不得遗留 `streaming`。`MESSAGE_STREAMING_STALE_SECONDS` 至少覆盖全部改写、重排和生成最大尝试预算加 60 秒，默认 360 秒|
 
 ---
 
@@ -503,6 +514,12 @@ CREATE TABLE document_tasks (
     task_type VARCHAR(32) NOT NULL,
     -- parse | chunk | embed | finalize | cleanup | delete_cleanup
 
+    delete_cycle INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT ck_document_tasks_delete_cycle CHECK (
+        (task_type = 'delete_cleanup' AND delete_cycle > 0)
+        OR (task_type <> 'delete_cleanup' AND delete_cycle = 0)
+    ),
+
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     -- pending | queued | running | succeeded | failed | cancelled
 
@@ -524,7 +541,10 @@ CREATE TABLE document_tasks (
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 供 document_task_attempts 的复合外键引用，强制 attempt 的边界与父任务一致。
+    CONSTRAINT uq_document_tasks_attempt_scope
+        UNIQUE (id, user_id, knowledge_base_id, document_id, document_version)
 );
 
 CREATE UNIQUE INDEX uniq_document_task_idempotency
@@ -548,12 +568,19 @@ ON document_tasks(user_id, knowledge_base_id, status);
 |document_version|INTEGER|任务绑定的文档版本，防止旧版本任务污染新版本 chunks|
 |task_type|VARCHAR|处理阶段：`parse` / `chunk` / `embed` / `finalize` / `cleanup` / `delete_cleanup`；前者只清理旧版本，后者只清理删除资料|
 |status|VARCHAR|任务状态：`pending` / `queued` / `running` / `succeeded` / `failed` / `cancelled`|
-|idempotency_key|VARCHAR|幂等键，建议格式：`{task_type}:{document_id}:v{document_version}`|
+|delete_cycle|INTEGER|删除清理轮次；仅 `delete_cleanup` 使用且必须大于 0，其他任务为 0；用于保留每轮删除的独立审计记录|
+|idempotency_key|VARCHAR|幂等键；普通阶段格式为 `{task_type}:{document_id}:v{document_version}`，删除清理为 `delete_cleanup:{document_id}:v{document_version}:d{delete_cycle}`，因此重试删除会创建新任务而不覆盖历史|
 |error_code / error_message|INTEGER / TEXT|任务异步失败业务码与安全摘要；任务详情接口仍返回 HTTP 200|
 |total_items / processed_items|INTEGER|任务处理总量和已完成数量，例如 embed 已写入 chunk 数|
 |checkpoint|JSONB|任务恢复点，例如当前批次、最后处理的 `chunk_index`、外部任务 ID|
 |depends_on_task_id|UUID|上游任务依赖，用于表达 parse → chunk → embed → finalize|
 
+> `retry_count` 表示首次执行之外已经启动的重试次数；初次 attempt 的 `attempt_no=1` 且
+> `retry_count=0`，每次重试先递增 `retry_count` 再创建下一个 attempt。MVP 的 `max_retries=3`
+> 表示初次执行后最多再重试 3 次，因此单个任务最多创建 4 个 attempt（`attempt_no=1..4`）；当
+> `retry_count >= max_retries` 时不得再次排队。该语义对每个独立任务成立，包括每一轮新建的
+> `delete_cleanup`，新删除轮次从 0 重新计数，且不得修改旧轮次记录。
+>
 > `documents.status` 用于前端展示，`document_tasks.status` 用于系统内部任务编排。Celery 重投递时必须先按 `idempotency_key` 查重。
 
 ##### 8.1 document_upload_requests — 上传请求幂等表
@@ -620,18 +647,30 @@ attempt/task 并释放名额。若 running attempt 没有活动 lease，则立�
 ```sql
 CREATE TABLE document_task_attempts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id UUID NOT NULL REFERENCES document_tasks(id) ON DELETE CASCADE,
+    task_id UUID NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    document_version INTEGER NOT NULL,
     attempt_no INTEGER NOT NULL,
     worker_name VARCHAR(128),
     status VARCHAR(20) NOT NULL,
     error_message TEXT,
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     finished_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- task_id 与冗余边界必须引用同一条父任务，不能只依赖各列的独立外键。
+    CONSTRAINT fk_document_task_attempt_parent_scope
+        FOREIGN KEY (task_id, user_id, knowledge_base_id, document_id, document_version)
+        REFERENCES document_tasks (id, user_id, knowledge_base_id, document_id, document_version)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX idx_task_attempts_task_id
 ON document_task_attempts(task_id);
+
+CREATE INDEX idx_task_attempts_tenant_document
+ON document_task_attempts(user_id, knowledge_base_id, document_id, started_at DESC);
 
 CREATE UNIQUE INDEX uniq_task_attempt_no
 ON document_task_attempts(task_id, attempt_no);
@@ -641,7 +680,7 @@ ON document_task_attempts(task_id)
 WHERE finished_at IS NULL;
 ```
 
-> 此表是排障视角状态：记录每次任务尝试、失败原因、worker 信息和耗时。任务每次开始执行都必须创建 `running` attempt，结束或失联恢复时必须写入 `finished_at` 和明确状态；同一任务不得同时存在两个未结束 attempt。
+> 此表是排障视角状态：记录每次任务尝试、失败原因、worker 信息和耗时。父任务对 `(id, user_id, knowledge_base_id, document_id, document_version)` 建立复合唯一键，attempt 以 `(task_id, user_id, knowledge_base_id, document_id, document_version)` 建立复合外键；因此 `user_id`、`knowledge_base_id`、`document_id` 和 `document_version` 必须在数据库层与 `task_id` 指向的同一父任务完全一致，而不是仅靠各列的独立外键或应用约定。创建 attempt 时仍必须在同一事务锁定父任务并复制、校验四者一致。任务每次开始执行都必须创建 `running` attempt，结束或失联恢复时必须写入 `finished_at` 和明确状态；同一任务不得同时存在两个未结束 attempt。attempt 详情与诊断读取必须经带当前 `user_id` 条件的仓储方法完成，不得直接按 `task_id` 查询。
 
 ---
 
@@ -677,23 +716,29 @@ ON document_chunk_drafts(user_id, knowledge_base_id, document_id);
 
 #### 文档处理状态机
 
-```text
-pending
--> queued
--> processing
--> completed
--> failed
--> deleting
--> deleted
-```
+| # | 当前状态 | 触发事件 | 目标状态 | 约束 |
+|---|---|---|---|---|
+| 1 | — | 创建文档 | `pending` | 同一事务创建不可执行的初始 `parse` 任务。 |
+| 2 | `pending` | 上传协调、投递成功 | `queued` | 任务成为可执行状态；Celery 不是状态真相源。 |
+| 3 | `queued` | worker 认领 | `processing` | 取得资料级处理名额并创建 running attempt。 |
+| 4 | `processing` | `finalize` 成功 | `completed` | 校验当前版本正式 chunks 后才可发布。 |
+| 5 | `processing` | `parse` / `chunk` / `embed` / `finalize` 当前子阶段重试耗尽 | `failed` | `current_task_type` 记录失败子阶段；不得经过 `completed`。 |
+| 6 | `pending` / `queued` / `processing` / `completed` / `failed`（非 `delete_cleanup`） | 用户发起 DELETE | `deleting` | 与流水线阶段无关；取消未开始任务，并等待运行 attempt 自然停止或经 fencing/孤儿扫描安全接管后才激活删除清理。 |
+| 7 | `deleting` | `delete_cleanup` 成功 | `deleted` | 原始文件和派生数据清理完毕；历史引用快照不受影响。 |
+| 8 | `deleting` | `delete_cleanup` 重试耗尽 | `failed` | `current_task_type = delete_cleanup`，错误码 `20015`；列表/详情仅向所属用户显示“删除未完成”最小墓碑和“重试删除”，检索仍不可见。 |
+| 9 | `failed`（`current_task_type = delete_cleanup`） | 再次发起 DELETE | `deleting` | 递增 `delete_cycle` 并新建 `delete_cleanup` 任务/attempt；历史任务、attempt 与重试计数不可变，不触发 `parse` / `chunk` / `embed` / `finalize`。 |
 
+- 资料 DELETE 使用独立、带 `user_id` 的锁定变更查询，可命中普通可见资料、`deleting` 与
+  `failed/delete_cleanup/20015`，不得复用于 GET/list。命中 `deleting` 时幂等返回成功，不递增
+  `delete_cycle`、不创建清理任务；命中 `deleted` 时返回 404。
 - 上传成功后先创建 `documents`，再创建 `parse` 任务。
 - 进入任务队列时更新 `documents.status = queued`。
 - 文档创建或排队时可预填 `current_task_type = parse`；任一任务运行时更新 `documents.status = processing` 和对应的 `current_task_type`。
 - `finalize` 成功后统一回写 `completed`、`chunk_count`、`processing_finished_at`。
 - `cleanup` 在 `finalize` 之后异步触发，只清理旧版本派生数据；检索正确性不依赖 cleanup。
 - 删除文档时进入 `deleting`，取消未开始任务并从列表、详情与检索隐藏；专用 `delete_cleanup`
-  清理文件和全部派生数据后保留最小墓碑并进入 `deleted`。MVP 不直接物理删除资料行。
+  清理文件和全部派生数据后保留最小墓碑并进入 `deleted`。若清理重试耗尽，则进入
+  `failed/delete_cleanup/20015`，只暴露最小“删除未完成”墓碑和重试删除入口；重试新建清理任务而不重置历史。MVP 不直接物理删除资料行。
 
 #### 事务边界
 
@@ -820,14 +865,24 @@ DO UPDATE SET
 
 #### delete_cleanup 与知识库删除
 
-资料 DELETE 事务标记 `deleting`、取消未开始任务并幂等创建 `delete_cleanup`。无活动 attempt 时
+资料 DELETE 命令使用独立、带 `user_id` 的锁定变更查询。首次删除才标记 `deleting`、取消未开始任务、
+递增 `delete_cycle` 并创建独立 `delete_cleanup`；命中 `deleting` 时幂等成功且不递增轮次、不创建任务；
+命中 `failed/delete_cleanup/20015` 时递增轮次并新建任务；命中 `deleted` 时返回 404。无活动 attempt 时
 立即释放名额并激活清理；存在活动 attempt 时不提前释放 lease，并以删除事务锁定时的
 `expires_at` 冻结等待上限，后续心跳不得续租。running attempt 没有活动 lease 时立即接管。
-worker 的下一次写入会被 fencing 拦截并主动取消；worker 卡死则由上述孤儿扫描在超时后强制接管。
+worker 的下一次写入会被 fencing 拦截并主动取消；worker 卡死则由上述孤儿扫描在超时后强制接管。若
+`delete_cleanup` 重试耗尽，资料进入 `failed`、记录 `current_task_type = delete_cleanup` 和 `20015`；资料所属用户
+只能看到最小删除失败墓碑并再次 DELETE。从该失败状态再次 DELETE 只创建下一轮清理任务，旧任务、attempt 和 retry_count 均不可修改。
 
 知识库 DELETE 先将 `knowledge_bases.status` 标为 `deleting` 并对全部资料执行相同编排，从提交起
-隐藏知识库及子资源。全部资料为 `deleted` 且无活动 attempt 后，维护扫描器才物理删除知识库并
-级联对话、消息和引用；空知识库可在删除事务内直接删除。不得用立即数据库级联代替文件清理。
+隐藏知识库及子资源。DELETE 命令使用独立、带 `user_id` 的变更查询，可命中所属用户的
+`active/deleting/delete_failed` 知识库；该查询不得复用于普通 GET/list、对话或其他子资源路由。命中
+`deleting` 时幂等成功且不创建任务。若任一子资料的 `delete_cleanup` 重试耗尽，维护扫描器将知识库
+收敛为 `delete_failed`、`delete_error_code=20015`，仅向所属用户返回不含名称、描述和子资源的最小
+“删除未完成”墓碑，`allowed_actions` 仅为 `retry_delete`。所属用户再次 DELETE 时才转回 `deleting`，
+并仅为 `failed/delete_cleanup` 子资料创建新的删除轮次。全部资料为
+`deleted` 且无活动 attempt 后，维护扫描器才物理删除知识库并级联对话、消息和引用；空知识库可在删除
+事务内直接删除，物理删除后再次 DELETE 返回 404。不得用立即数据库级联代替文件清理。
 
 #### 版本控制底线
 
@@ -864,24 +919,39 @@ PUT /knowledge-bases/{kb_id}/documents/{doc_id}/file
 #### 资料处理并发控制
 
 - 单用户同时处于 `processing` 的文档默认最多 3 个，超过后任务保持 `queued`。
-- 并发名额必须在数据库事务中按用户原子获取并与资料/任务绑定；终态、取消或删除时释放，恢复扫描器按持久化心跳回收失联名额。Redis 与 Celery 均不是名额真相源。
-- 单文档同一 `document_version` 同一 `task_type` 只能存在一个未终态任务，由 `idempotency_key` 保证。
+- 并发名额必须在数据库事务中按用户原子获取并与资料/任务绑定；完成、失败、取消或失联恢复时释放。删除时仅无活动 attempt 的资料可立即释放；有活动 attempt 时必须冻结当时的 lease `expires_at`、禁止续租，并在 worker 正常取消或恢复扫描器安全接管后才释放。Redis 与 Celery 均不是名额真相源。
+- 单文档同一 `document_version` 同一 `task_type` 只能存在一个未终态任务，由 `idempotency_key` 保证；
+  `delete_cleanup` 以 `delete_cycle` 区分每次有效新删除轮次（首次删除或删除清理失败后的重试），
+  `deleting` 状态的幂等重放不产生新轮次；历史终态清理任务可保留，下一轮不会覆盖它。
 - embedding 阶段按批次处理，单批建议 50 / 100 个 chunk，失败只重试当前任务，不回滚已成功的其他文档。
 - 用户删除文档时，后续未开始任务标记为 `cancelled`；运行中任务除阶段边界检查外，还必须由每次
   持久化写入的数据库 fencing 强制阻止删除后的写入，失联等待不得超过活动 lease 的 `expires_at`。
 
 #### 降级策略
 
-模型供应商、端点、共享凭证及四类模型名均由 `MODEL_GATEWAY_*` 环境变量配置。Embedding 默认
+模型供应商、端点、共享凭证及四类模型名均由 `MODEL_GATEWAY_*` 环境变量配置。MVP 的
+`MODEL_GATEWAY_PROVIDER` 固定支持 `openai-compatible` 协议适配器；`MODEL_GATEWAY_ENDPOINT` 无默认值，
+必须显式配置并使用合法 HTTPS base URL。仅本地开发和自动化测试允许使用 HTTP，且主机名必须精确为
+`localhost`，或地址必须为回环 IP `127.0.0.1`/`::1`；其他 HTTP endpoint 一律拒绝就绪，无需引入环境模式变量。
+适配器通过 endpoint、API key 和模型名
+连接兼容供应商；Embedding 使用兼容 embeddings 端点，Query Rewrite/Generation 使用兼容 chat 端点；
+可选 Reranker 配置后通过同一 chat 端点返回 `{"scores":[{"candidate_index":0,"score":0.0}]}`；每个候选
+临时序号必须恰好出现一次，序号不得重复或越界，score 必须为有限数值。合法结果按 score 降序且同分
+保持原 RRF 顺序；响应解析或校验失败时整体回退 RRF，不应用部分评分。未配置或调用失败时同样直接使用
+RRF。未知 provider
+必须在启动就绪校验中失败，不得静默回退。Embedding 默认
 `text-embedding-3-small`；Query Rewrite 与 Generation 模型必须显式配置；Reranker 模型为空时
-禁用重排且不影响就绪。Embedding/改写/Reranker/生成分别使用 30 秒/2 次、10 秒/1 次、
+禁用重排且不影响就绪。模型网关是超时与重试的唯一执行者，集中完成路由、凭证注入、脱敏、稳定错误分类和
+白名单审计，只向业务用例适配器返回最终成功或失败；适配器不得自行再次超时或重试。Embedding 失败由嵌入用例
+收敛资料/任务失败，改写失败使用原问题，Reranker 失败使用 RRF，生成失败收敛 `failed/error`。Embedding/改写/Reranker/生成分别使用 30 秒/2 次、10 秒/1 次、
 10 秒/1 次、首 token 15 秒且总时长 120 秒/1 次的默认超时与重试，变量名称以
 `specs/001-orionamesh-rag-mvp/quickstart.md` 为准。
 
 - Reranker 不可用：跳过 rerank，直接使用 RRF 融合结果进入 Context Pack。
 - 中文 FTS 扩展不可用：MVP 必须退化为 `pg_trgm` 关键词召回；如果 `pg_trgm` 也不可用，则部署检查失败，不进入可用状态。
 - Query Rewrite 失败：回退到用户原始问题继续检索。
-- SSE 生成中断：已保存的 user message 保留；已创建但未完成的 assistant message 必须持久化为 `status = cancelled`、`finish_reason = cancelled`，不得删除或遗留 `streaming` 状态。
+- SSE 客户端连接断开：已保存的 user message 保留；已创建但未完成的 assistant message 必须持久化为 `status = cancelled`、`finish_reason = cancelled`。
+- 供应商、模型或服务错误：按既定重试耗尽后 assistant message 必须持久化为 `status = failed`、`finish_reason = error` 并发送 `error` 事件；正常完成和可信无证据答复为 `completed/stop`。API 进程崩溃或终态写入中断后，复用 Celery Beat 维护扫描器将超时且仍为 `streaming` 的消息条件收敛为 `failed/error`。所有分支均不得删除已创建消息或遗留 `streaming`。
 
 #### MVP 实现阶段
 
@@ -989,7 +1059,7 @@ Authorization: Bearer <access_token>
 {
   "data": {
     "access_token": "eyJ...",
-    "refresh_token": "eyJ...",
+    "refresh_token": "rt_7f6f1c9b0d8e4a2b...",
     "expires_in": 7200,
     "user": {
       "id": "uuid",
@@ -1010,13 +1080,15 @@ Authorization: Bearer <access_token>
 
 > 使用 `PUT` 表示替换当前 session，旧 refresh_token 同时失效。
 >
-> 刷新成功时必须轮换 refresh token：旧 session 写入 `revoked_at`，新 session 通过 `rotated_from_session_id` 指向旧 session。
+> 刷新成功时必须在同一事务中按 refresh token 摘要锁定旧 session；锁定后仍有效才可将旧 session 写入
+> `revoked_at` 并创建通过 `rotated_from_session_id` 指向它的新 session。同一 token 的并发后到请求取得锁后
+> 必须返回 `10006/401`，不得创建第二个后继 session。
 
 **Request Body：**
 
 ```json
 {
-  "refresh_token": "eyJ..."
+  "refresh_token": "rt_7f6f1c9b0d8e4a2b..."
 }
 ```
 
@@ -1026,7 +1098,7 @@ Authorization: Bearer <access_token>
 {
   "data": {
     "access_token": "eyJ...",
-    "refresh_token": "eyJ...",
+    "refresh_token": "rt_2a8d3e6f9b1c4d7e...",
     "expires_in": 7200
   }
 }
@@ -1048,7 +1120,7 @@ Authorization: Bearer <access_token>
 
 ```json
 {
-  "refresh_token": "eyJ..."
+  "refresh_token": "rt_2a8d3e6f9b1c4d7e..."
 }
 ```
 
@@ -1056,14 +1128,14 @@ Authorization: Bearer <access_token>
 
 **错误码：**
 
-- `401 TOKEN_EXPIRED` — Access Token 已过期
+- `10001/401 TOKEN_INVALID_OR_EXPIRED` — Access Token 缺失、格式错误、签名或算法无效、必填声明/type 错误或过期
 - `401 INVALID_REFRESH_TOKEN` — refresh token 无效、过期、已撤销或不属于当前用户
 
 ---
 
 ##### 忘记密码 / 密码重置
 
-MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失密码时，由管理员手动重置 `users.password_hash`，或删除账号后由用户重新注册。
+MVP 不提供任何忘记密码、自助或管理员密码重置、邮件/验证码重置及账号恢复流程；后续版本如需支持，必须另行定义安全流程与接口。
 
 ---
 
@@ -1119,7 +1191,19 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
         "id": "uuid",
         "name": "产品手册",
         "description": "Q3 版本",
-        "document_count": 12,
+        "status": "active",
+        "delete_error_code": null,
+        "allowed_actions": ["delete"],
+        "created_at": "2025-01-01T00:00:00Z",
+        "updated_at": "2025-01-02T00:00:00Z"
+      },
+      {
+        "id": "uuid",
+        "name": null,
+        "description": null,
+        "status": "delete_failed",
+        "delete_error_code": 20015,
+        "allowed_actions": ["retry_delete"],
         "created_at": "2025-01-01T00:00:00Z",
         "updated_at": "2025-01-02T00:00:00Z"
       }
@@ -1152,7 +1236,9 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
     "id": "uuid",
     "name": "产品手册",
     "description": "Q3 版本相关资料",
-    "document_count": 0,
+    "status": "active",
+    "delete_error_code": null,
+    "allowed_actions": ["delete"],
     "created_at": "2025-01-01T00:00:00Z"
   }
 }
@@ -1193,7 +1279,12 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
 
 > 先将知识库标记为内部 `deleting` 并编排全部资料的有界停止与 `delete_cleanup`。从提交起知识库
 > 及子资源立即不可见；所有资料清理完成且无活动 attempt 后才物理删除知识库，并级联绑定对话、
-> 消息与引用。禁止以立即数据库级联跳过运行 worker 和持久卷文件清理。
+> 消息与引用。DELETE 使用所属用户范围的独立变更查询，可命中 `active/deleting/delete_failed`；普通
+> 知识库列表/详情可按所属用户返回 `active` 完整对象或 `delete_failed` 最小墓碑，内容与子资源读取只允许
+> `active`。命中 `deleting` 时
+> 幂等成功且不创建任务；任一子资料以 `20015` 删除失败后，知识库收敛为 `delete_failed/20015` 最小墓碑，
+> `allowed_actions` 仅为 `retry_delete`。再次 DELETE 才转回 `deleting` 并仅为失败子资料创建新删除轮次。
+> 物理删除后再次 DELETE 返回 404。禁止以立即数据库级联跳过运行 worker 和持久卷文件清理。
 
 **Response 200：** 返回统一成功信封，`data` 为 `null`
 
@@ -1234,6 +1325,7 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
         "version": 1,
         "current_task_type": "parse",
         "retry_count": 0,
+        "delete_cycle": 0,
         "chunk_count": 0,
         "error_code": null,
         "error_message": null,
@@ -1266,7 +1358,9 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
 |---|---|---|
 |page|int|页码，默认 1|
 |page_size|int|每页数量，默认 20，最大 100|
-|status|string|可选，按状态过滤|
+|status|string|可选，仅允许 `pending` / `queued` / `processing` / `completed` / `failed`；`deleting` / `deleted` 返回 `10003/400`|
+
+> 列表查询必须先固定排除内部 `deleting/deleted`，再应用 `status` 过滤；客户端不能通过过滤参数读取隐藏资料。
 
 **Response 200：**
 
@@ -1282,6 +1376,8 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
         "status": "completed",
         "version": 1,
         "current_task_type": null,
+        "retry_count": 0,
+        "delete_cycle": 0,
         "chunk_count": 43,
         "error_code": null,
         "error_message": null,
@@ -1322,6 +1418,7 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
     "error_code": null,
     "error_message": null,
     "retry_count": 0,
+    "delete_cycle": 0,
     "processing_started_at": "2025-01-01T00:00:02Z",
     "processing_finished_at": null,
     "created_at": "2025-01-01T00:00:00Z",
@@ -1381,12 +1478,42 @@ MVP 不支持忘记密码、邮件重置或验证码重置流程。用户遗失�
 
 ##### `DELETE /knowledge-bases/{kb_id}/documents/{doc_id}` — 删除文档
 
-> 删除事务将资料更新为 `deleting`、取消未开始任务并幂等创建专用 `delete_cleanup` 后返回成功；
+> DELETE 使用所属用户范围的独立变更查询。首次调用将资料更新为 `deleting`、取消未开始任务，并为本次 `delete_cycle` 创建专用 `delete_cleanup` 后返回成功；
 > 从提交起资料不再出现在列表、详情和检索中。若有运行 attempt，则保留处理 lease 并以其
 > `expires_at` 为冻结的等待上限，资料进入 deleting 后心跳不得续租；所有持久化写入通过
 > `attempt_id` fencing 在同一事务校验 attempt/task
 > 仍运行且资料未删除。worker 卡死时，孤儿扫描器超时后取消 attempt/task、释放名额并激活清理。
-> `delete_cleanup` 清理原文件、草稿、chunks 和向量后保留最小 `deleted` 墓碑；历史引用只返回快照。
+> `delete_cleanup` 清理原文件、草稿、chunks 和向量后保留最小 `deleted` 墓碑；历史引用只返回快照。若其重试耗尽，
+> 资料以 `failed` / `current_task_type=delete_cleanup` / `20015` 返回最小“删除未完成”墓碑，`allowed_actions` 仅为
+> `retry_delete`；从该失败状态再次调用本 DELETE 创建新清理任务，不得重置旧任务或 attempt。若资料已为
+> `deleting`，重复调用幂等成功且不递增 `delete_cycle`、不创建任务；资料已为 `deleted` 时返回 404。
+
+**删除未完成资料示例（Response 200，仅资料所属用户可见）：**
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "knowledge_base_id": "uuid",
+    "filename": "report.pdf",
+    "file_type": "pdf",
+    "file_size": 204800,
+    "status": "failed",
+    "version": 1,
+    "current_task_type": "delete_cleanup",
+    "retry_count": 3,
+    "delete_cycle": 2,
+    "chunk_count": 0,
+    "error_code": 20015,
+    "error_message": "资料删除未完成，请重试删除",
+    "processing_started_at": null,
+    "processing_finished_at": null,
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:03:00Z",
+    "allowed_actions": ["retry_delete"]
+  }
+}
+```
 
 **Response 200：** 返回统一成功信封，`data` 为 `null`
 
@@ -1577,7 +1704,25 @@ data: {"code":0,"data":{"message_id":"uuid","finish_reason":"stop"},"msg":"","tr
 |`message_end`|生成正常结束|统一信封，`data.message_id`、`data.finish_reason`|
 |`error`|生成前或生成中失败|错误信封，`code`、`msg`、`trace_id`|
 
-客户端断开连接时，服务端应取消后续 LLM 生成和未完成的流式写入。若 assistant message 已创建但未完整生成，必须持久化为 `status = cancelled`、`finish_reason = cancelled`，不得删除或留下 `streaming` 状态。
+客户端连接断开时，服务端应取消后续 LLM 生成和未完成的流式写入；若 assistant message 已创建但未完整生成，必须持久化为 `status = cancelled`、`finish_reason = cancelled`。供应商、模型或服务错误在重试耗尽后必须发送 `error` 事件，并持久化为 `status = failed`、`finish_reason = error`；正常完成或可信无证据答复为 `completed/stop`。API 进程异常退出时，由既有维护扫描器在 `MESSAGE_STREAMING_STALE_SECONDS`（默认 360 秒）后将仍为 `streaming` 的记录条件更新为 `failed/error`。任何分支都不得删除已创建消息或留下 `streaming` 状态。
+
+#### 请求限流的来源 IP
+
+认证限流默认使用 TCP 直连对端 IP，并忽略客户端提供的全部转发头。只有直连对端属于
+`RATE_LIMIT_TRUSTED_PROXY_CIDRS` 显式配置的代理网段时，才解析 `X-Forwarded-For`：把直连对端
+附在链尾，从右向左跳过可信代理，选择首个非可信地址。配置默认值为空，任一地址格式非法或链中不存在非可信地址时
+回退直连对端 IP；不信任 `X-Real-IP`，日志、Redis 和指标不得保存完整转发链。
+
+#### 镜像发布与回滚
+
+GitHub Actions 使用 `GITHUB_TOKEN` 的 `packages: write` 权限发布
+`ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`，其中仓库名在
+workflow 中统一转为小写。受保护分支使用不可变 `sha-${GITHUB_SHA}` 标签，正式 Git tag 可追加
+语义版本标签；Compose 通过 `BACKEND_IMAGE`、`FRONTEND_IMAGE` 接收完整引用，不使用 `latest`。
+回滚时把两个变量同时切换到上一已验证 SHA 标签，再执行 pull、up 和健康检查。镜像回滚不自动
+降级数据库；破坏性迁移发布前必须人工备份，失败时停止发布并按备份恢复。数据库迁移只能由
+部署流程中的单次串行 one-off 后端容器执行 `alembic upgrade head`，API/worker 启动不得自动迁移；
+迁移成功后才切换运行容器，迁移失败保持旧容器运行。
 
 **RAG 链路（后端执行顺序）：**
 
@@ -1719,7 +1864,8 @@ LIMIT 10;
 |删除成功|`200 OK`，返回统一成功信封且 `data = null`|
 |参数校验失败|`400 Bad Request`|
 |未携带 Token / Token 无效|`401 Unauthorized`|
-|无权访问他人资源|`403 Forbidden`|
+|按 ID 访问他人知识库|`404 Not Found`（`20002`；不得全局探测归属）|
+|按 ID 访问他人资料、任务、对话、消息或引用|`404 Not Found`（`20007`；不得全局探测归属）|
 |资源不存在|`404 Not Found`|
 |资源冲突（邮箱重复等）|`409 Conflict`|
 |服务端内部错误|`500 Internal Server Error`|
@@ -1732,18 +1878,19 @@ LIMIT 10;
 |---|---|---|
 |`INVALID_REQUEST`|400|请求参数校验失败|
 |`UNSUPPORTED_FILE_TYPE`（`20009`）|400|仅支持 PDF、DOCX、MD 和 TXT 文件|
-|`DOCUMENT_PARSE_FAILED`（`20001`）|详情 HTTP 200|异步解析失败；通过资料/任务的 `status=failed` 与 `error_code` 返回|
-|`EMPTY_DOCUMENT`（`20010`）|详情 HTTP 200|标准化文本为空；不得进入分块或嵌入|
+|`DOCUMENT_PARSE_FAILED`（`20001`）|详情 HTTP 200|资料解析失败，请删除后重新上传|
+|`EMPTY_DOCUMENT`（`20010`）|详情 HTTP 200|资料内容为空，请删除后重新上传；不得进入分块或嵌入|
 |`DOCUMENT_STORAGE_FAILED`（`20011`）|详情 HTTP 200|文件保存失败，请删除后重新上传|
 |`DOCUMENT_EMBEDDING_FAILED`（`20012`）|详情 HTTP 200|资料向量化失败，请删除后重新上传|
 |`DOCUMENT_FINALIZE_FAILED`（`20013`）|详情 HTTP 200|资料处理结果不一致，请删除后重新上传|
 |`DOCUMENT_RETRY_EXHAUSTED`（`20014`）|详情 HTTP 200|资料处理失败，请删除后重新上传|
+|`DELETE_CLEANUP_FAILED`（`20015`）|详情 HTTP 200|资料或知识库删除未完成，请重试删除|
 |`FILE_TOO_LARGE`|400|文件超过大小限制（50MB）|
 |`TOO_MANY_FILES`|400|单次上传超过 20 个文件；整批无副作用|
 |`INVALID_CREDENTIALS`|401|邮箱或密码错误|
 |`UNAUTHORIZED`|401|Token 无效或已过期|
 |`INVALID_REFRESH_TOKEN`（`10006`）|401|refresh_token 无效、过期、已撤销或发生重放|
-|`FORBIDDEN`|403|无权访问该资源|
+|`FORBIDDEN`|403|资源已在当前授权边界内，但当前主体仍无该操作权限；不得用于区分跨租户资源是否存在|
 |`NOT_FOUND`|404|资源不存在|
 |`EMAIL_ALREADY_EXISTS`|409|邮箱已注册|
 |`KNOWLEDGE_BASE_NOT_READY`|409|当前知识库没有任何 `completed` 文档|

@@ -1,6 +1,6 @@
 ﻿# oriona-mesh Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-08-12
+Auto-generated from all feature plans. Last updated: 2026-08-13
 
 ## Active Technologies
 - PostgreSQL（业务与任务真相）、Redis（队列及临时限流计数）、存储后端无关的文件存储 (001-orionamesh-rag-mvp)
@@ -32,7 +32,7 @@ General: Follow standard conventions
 ## Recent Changes
 - 001-orionamesh-rag-mvp: Added Python 3.12；TypeScript 5.x；Node.js 22 LTS + FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino
 - 001-orionamesh-rag-mvp: Added Python 3.12；TypeScript 5.x；Node.js 22 LTS + FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino
-- 001-orionamesh-rag-mvp: Added Python 3.12、TypeScript 5、Node.js LTS + FastAPI、Pydantic、LangChain、Celery、SQLAlchemy/Alembic、Next.js、React、Tailwind CSS、Shadcn/UI、structlog、Pino
+- 001-orionamesh-rag-mvp: Added Python 3.12；TypeScript 5.x；Node.js 22 LTS + FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino
 
 
 
@@ -49,6 +49,9 @@ General: Follow standard conventions
 - 所有资源必须服务端按当前用户授权；检索强制过滤用户、知识库、完成状态与当前资料版本。
 - `embed` 幂等直写 `chunks`，`finalize` 只校验并翻转资料状态；所有片段读取必须经统一
   `ChunkRepository`，禁止路由、服务或 worker 直接读取该表。
+- 资料删除使用 `deleting → deleted` 专用清理；清理重试耗尽时使用
+  `failed/delete_cleanup/20015` 最小墓碑。重试删除必须递增 `delete_cycle` 并新建清理任务，
+  不得重置历史任务、attempt 或重试计数。
 - 质量门禁：Ruff、Pyright、pytest、OpenAPI 校验；ESLint、Prettier、TypeScript、Vitest 和
   Playwright；Docker Compose 与 GitHub Actions 必须使用锁定依赖安装。
 <!-- MANUAL ADDITIONS END -->

@@ -13,7 +13,12 @@
 ## 决策 2：任务状态以 PostgreSQL 为真相源
 
 **决定**：`documents`、`document_tasks` 与 `document_task_attempts` 保存用户可见状态和审计
-事实；Celery/Redis 只负责投递与执行。
+事实；Celery/Redis 只负责投递与执行。`document_tasks` 对 `(id, user_id, knowledge_base_id, document_id, document_version)` 建立复合唯一键，`document_task_attempts` 对 `(task_id, user_id, knowledge_base_id, document_id, document_version)` 建立复合外键，数据库强制 attempt 的冗余边界与其父任务一致。
+后台文档任务调度级 `document_tasks.max_retries` 在 MVP 对全部任务类型统一默认 `3`，表示初次执行之外
+最多再重试 3 次：初次 `attempt_no=1/retry_count=0`，每次重试先递增计数再创建 attempt，因而单任务最多
+4 个 attempt；每个新任务（包括新删除轮次）独立从 0 计数。`documents.retry_count` 只镜像当前阶段任务
+计数，阶段切换、新删除轮次和完成时按 Plan 规则重置，不做全流水线累计。该预算与模型网关调用重试
+相互独立；暂不增加阶段级默认值或额外重试策略配置，以避免多套重试真相源。
 
 **理由**：执行器状态可丢失或过期，不能用于恢复或展示。资料详情轮询和任务详情 API 只读
 数据库状态；工作进程在阶段边界持久化状态、进度或失败。
@@ -31,11 +36,13 @@
 
 ## 决策 4：检索必须双路、证据不足必须拒答
 
-**决定**：对当前用户和会话知识库，向量与关键词召回各取前 10 项；RRF 融合，重排器可选；
-无完成资料或无相关证据时不生成知识库结论。
+**决定**：对当前用户和会话知识库，向量与关键词召回各取前 10 项。向量路径只保留余弦相似度
+不低于 `0.65` 的候选，关键词路径只保留 pg_trgm 相似度不低于 `0.30` 的候选；两个阈值均通过
+`RETRIEVAL_VECTOR_MIN_SIMILARITY` 与 `RETRIEVAL_TRGM_MIN_SIMILARITY` 配置覆盖。仅将通过门槛的候选
+送入 RRF 融合，重排器可选；无完成资料或融合后为空时不生成知识库结论。
 
-**理由**：双路检索改善召回鲁棒性，拒答确保 RAG 产品可信。可选能力失败时回退而非中断可用
-路径。
+**理由**：双路检索改善召回鲁棒性；先过滤再融合使“无相关证据”成为可测试的确定性状态，而非
+依赖 Top-K 是否恰好为空。拒答确保 RAG 产品可信。可选能力失败时回退而非中断可用路径。
 
 **备选方案**：仅向量召回或允许自由发挥；均拒绝，分别降低召回覆盖和证据可信度。
 
@@ -50,10 +57,15 @@
 
 ## 决策 6：SSE 断开采用持久化取消终态
 
-**决定**：用户消息先持久化；若 assistant 消息已创建而 SSE 客户端断开或生成取消，更新为
-`cancelled` 并写入结束原因；不得保留未结束的 `streaming` 状态。
+**决定**：用户消息先持久化。assistant 消息正常完成或可信无证据答复时更新为
+`completed/stop`；供应商、模型或服务错误在既定重试耗尽后更新为 `failed/error`；SSE 客户端
+连接断开时更新为 `cancelled/cancelled`。复用 Celery Beat 的维护扫描器，将超过
+`MESSAGE_STREAMING_STALE_SECONDS` 且仍为 `streaming` 的消息条件更新为 `failed/error`；默认值为
+360 秒，且启动校验要求它不小于全部 Query Rewrite、Reranker 和 Generation 最大尝试预算之和再加
+60 秒。不得保留未结束的 `streaming` 状态。
 
-**理由**：统一终态便于历史展示、诊断与测试，符合无半成品可见状态原则。
+**理由**：正常 finally 块无法覆盖 API 进程崩溃；数据库条件更新和既有扫描器能够在不增加服务或
+消息状态机的前提下恢复终态，符合无半成品可见状态原则。
 
 **备选方案**：删除未完成 assistant 消息；拒绝，因为会丢失用户问题对应的处理事实。
 
@@ -61,14 +73,29 @@
 
 **决定**：除 SSE 外，所有 API 使用 `{ code, data, msg, trace_id }` JSON 信封；SSE 的每个
 事件 `data` 也使用该信封。成功码固定为 `0`；业务错误码与 HTTP 状态码分别表达业务分类和
-传输语义。JWT 通过 Bearer 请求头传递，Access Token 有效期为 2 小时，Refresh Token 有效期为
-7 天。中间件为每个请求生成或接收 `trace_id` 并注入 structlog 上下文。
+传输语义。仅 Access Token 使用 JWT 并通过 Bearer 请求头传递，固定以 `HS256` 签名且有效期为
+2 小时。签名密钥由必填 `AUTH_JWT_SECRET_KEY` 注入，UTF-8 编码后不得少于 32 字节；缺失或过短时
+应用不得报告就绪。签发与校验固定要求 `sub`、`iat`、`exp` 和 `type=access`，解码只接受
+`HS256`，不得根据 token 头动态选择算法。Refresh Token
+固定使用 32 字节 CSPRNG 随机值、无填充 Base64URL 编码和 `rt_` 前缀组成 46 字符不透明字符串，
+有效期为 7 天；仅向客户端返回明文一次，服务端只保存 SHA-256 摘要，不将其编码为 JWT。
+刷新轮换在同一数据库事务中按摘要锁定旧 session 并复查 `revoked_at/expires_at`；只有第一个请求可
+撤销旧 session 并创建一个后继，其他并发请求取得锁后返回 `10006/401`，不得创建分叉会话。
+Access Token 缺失、Bearer 格式错误、签名/算法无效、缺失或非法必填声明、`type` 不为 `access` 与
+过期统一返回 `10001/401` 和“请重新登录”；`10004/401` 仅用于登录请求的邮箱或密码不匹配。中间件为
+每个请求生成或接收 `trace_id` 并注入 structlog 上下文。
 
 **理由**：前端可稳定以 `code` 决策，`trace_id` 可关联用户反馈与结构化日志。JSON 信封要求
 删除操作返回 `200` 而不是无响应体的 `204`。
 
+**认证方案理由**：单机 MVP 使用一个至少 32 字节的对称密钥即可满足 Access Token 签名与验证，
+无需引入公私钥分发、JWKS 或密钥服务。固定算法和 TTL 为代码常量，减少可配置面与算法混淆风险。
+
+**认证备选方案**：RS256/EdDSA 与 JWKS；适合多验证方或密钥轮换体系，但当前只有同一后端签发和
+验证，增加的密钥分发与运维复杂度没有对应 MVP 价值，暂不采用。
+
 **安全规则**：日志过滤 `password`、`token`、`secret_key` 及其嵌套变体；响应不得回显密码或
-刷新令牌以外的敏感原始数据。错误码至少包括：`10001/401` Token 过期、`10002/403` 无权访问、
+刷新令牌以外的敏感原始数据。错误码至少包括：`10001/401` Access Token 无效或过期、`10002/403` 无权访问、
 `10003/400` 参数校验失败、`10004/401` 登录凭证无效、`10005/429 RATE_LIMIT_EXCEEDED` 请求过于频繁、
 `10006/401 INVALID_REFRESH_TOKEN` 刷新令牌失效、
 `20001` 资料解析失败与 `20010 EMPTY_DOCUMENT` 空资料（均由详情 HTTP `200` 持久化返回）、
@@ -79,22 +106,45 @@
 以及 `50000/500` 内部错误。
 
 **备选方案**：沿用 HTTP 状态码和各接口自定义错误体；拒绝，因为会提高前端判断分支和跨服务
+
+**租户不可见语义**：按资源 ID 访问时，仓储必须先以当前 `user_id` 限定查询；范围内查询不到的
+知识库返回 `20002/404`，其他资源返回 `20007/404`，不得再做全局存在性探测。`10002/403` 仅作为
+未来角色权限功能的保留错误码；MVP 的单所有者资源没有可触发该错误的公开操作，OpenAPI 与前端
+不得为其制造不可达分支。
 排障成本。
 
 ## 决策 8：配置驱动的模型适配与弹性策略
 
 **决定**：使用 LangChain 适配器封装可通过环境配置选择的模型供应商、端点、密钥和四类模型；
-不在业务代码中写死供应商。Embedding 默认 `text-embedding-3-small`（1536 维），Query Rewrite 和
+不在业务代码中写死供应商。MVP 必须交付且仅承诺 `openai-compatible` 适配器标识，通过显式配置 endpoint、
+API key 和模型名兼容相同协议的供应商；Embedding 使用 embeddings 端点，Query Rewrite/Generation 使用
+chat 端点。`MODEL_GATEWAY_ENDPOINT` 无默认值且必须显式提供，并只接受合法 HTTPS base URL；仅本地开发和
+自动化测试允许使用主机名精确为 `localhost` 或回环 IP `127.0.0.1`/`::1` 的 HTTP endpoint，其他 HTTP
+endpoint 一律拒绝就绪，不增加环境模式变量；缺失、非法或未知 provider 均必须
+在启动就绪校验中失败。Embedding 默认 `text-embedding-3-small`（1536 维），Query Rewrite 和
 Generation 模型必须显式配置；Reranker 模型为空时禁用重排并直接使用 RRF。变更 embedding 维度时
 必须配套迁移与重建。四类模型名、超时和最大重试次数使用 Quickstart 固定的 `MODEL_GATEWAY_*`
-变量名，应用启动时校验必填项和取值范围。
+变量名，应用启动时校验必填项和取值范围。`ModelGateway` 是超时与重试的唯一执行者，并负责返回
+稳定错误分类；业务用例适配器只声明调用类型并消费网关最终结果，不得再包装第二层超时或重试，避免
+实际请求次数超过配置预算。领域降级不属于网关：Embedding 由嵌入用例收敛 `20012`，Query Rewrite
+由问答用例使用原问题，Reranker 由检索用例保留 RRF，Generation 由问答用例收敛 `failed/error`。
+
+**Reranker 输出**：可选 Reranker 通过 chat 端点返回
+`{"scores":[{"candidate_index":0,"score":0.0}]}`。每个输入候选序号必须恰好出现一次，序号不得
+重复或越界，`score` 必须为有限数值；任何解析或校验失败均整体回退原 RRF 顺序。合法结果按 score
+降序排列，同分保持 RRF 原顺序。
 
 **调用策略**：Embedding 超时 30 秒，指数退避重试 2 次，最终以 `20012` 将当前资料和任务收敛为失败；
 Query Rewrite 超时 10 秒、重试 1 次，最终使用原问题；Reranker 超时 10 秒、重试 1 次，最终
-跳过重排直接使用 RRF；生成首 token 超时 15 秒、总时长 120 秒、重试 1 次，最终失败或连接
-断开把 assistant 消息收敛为 `cancelled`，不生成无证据回答。
+跳过重排直接使用 RRF；生成首 token 超时 15 秒、总时长 120 秒、重试 1 次，供应商、模型或
+服务错误耗尽后把 assistant 消息收敛为 `failed/error`，只有客户端连接断开才收敛为
+`cancelled/cancelled`，不生成无证据回答。
 
 **理由**：供应商可替换而业务行为稳定；每个失败分支均保留明确、可信、可诊断的结果。
+
+**备选方案**：给 `openai-compatible` 隐式设置某一厂商 endpoint；拒绝，因为这会把协议适配器暗中
+绑定到具体供应商，并可能在配置遗漏时把敏感内容发往非预期网络目标。Reranker 对部分合法评分继续
+排序也被拒绝，因为候选缺失时无法稳定判断遗漏是低分还是供应商响应损坏。
 
 ## 决策 9：可复现工程工具链与发布门禁
 
@@ -110,10 +160,17 @@ format/check、Pyright、pytest 与 OpenAPI 校验；前端执行 ESLint、Prett
 
 **决定**：限流作为 `backend/app/infrastructure/rate_limit/` 内部模块实现，不新增独立服务。
 Redis 保存跨 API 实例共享的临时计数，使用原子滑动窗口或行为等价算法；限流计数不是业务
-状态，不写入 PostgreSQL。注册和登录同时按来源 IP 与规范化邮箱限制；刷新请求没有邮箱字段，
+状态，不写入 PostgreSQL。邮箱先去除首尾 Unicode 空白、完成格式校验并对完整值执行 Unicode
+`casefold`；该唯一函数的结果同时用于 users.email 存储、注册冲突、登录查询和账号限流 HMAC。注册和
+登录同时按来源 IP 与规范化邮箱限制；刷新请求没有邮箱字段，
 因此按来源 IP 与 refresh token 的 HMAC 指纹限制。账号、token 指纹与用户键必须经过带服务端
 秘密的不可逆摘要处理；上传、问答和普通认证接口按当前用户限制，原始 refresh token 不得进入
 Redis 键、日志或指标标签。
+
+来源 IP 默认取 TCP 直连对端并忽略全部转发头。`RATE_LIMIT_TRUSTED_PROXY_CIDRS` 默认为空；仅当
+直连对端命中可信代理 CIDR 时，解析 `X-Forwarded-For`，把直连对端附在链尾后由右向左跳过
+可信代理，选择首个非可信地址。任一地址格式非法或链中不存在非可信地址时回退直连对端，不信任 `X-Real-IP`，也不在
+日志或指标中保存完整转发链。
 
 默认阈值为：认证每 IP 20 次/5 分钟且每账号 5 次/5 分钟；上传每用户 10 次/10 分钟；问答
 每用户 20 次/分钟；其他认证接口每用户 120 次/分钟。阈值、窗口和键前缀均可配置。任一适用
@@ -140,7 +197,8 @@ Redis 键、日志或指标标签。
 模型 HTTP 客户端。网关与 FastAPI/Celery 位于同一代码库和部署镜像，不公开新的网络端点。
 
 调用顺序固定为：最小化输入 → 敏感数据检测/脱敏 → 供应商与模型路由 → 发送边界凭证注入
-→ 超时/重试 → 既定降级 → 白名单元数据审计。供应商配置保持环境可调，不在业务代码写死。
+→ 超时/重试 → 最终成功或稳定失败分类 → 白名单元数据审计。供应商配置保持环境可调，不在业务代码
+写死；业务适配器收到最终失败后执行本功能定义的领域降级或终态收敛。
 
 **理由**：一个不可绕过的代码级出口边界能够统一安全、弹性和审计行为，同时避免 MVP 引入
 独立代理服务的网络跳数、部署和可用性负担。架构测试可以稳定禁止旁路依赖。
@@ -155,9 +213,9 @@ Authorization/Cookie 等请求头、内部绝对存储路径及可直接识别�
 身份证件号等个人标识在不影响任务语义时替换为当前调用内稳定的不可逆占位符；不得建立可逆
 映射或把原值放入任务 payload、异常和日志。
 
-脱敏器异常，或发现禁止外发数据却无法可靠处理时，网关 fail-closed：不得创建外部网络请求。
-Query Rewrite 回退原问题，Reranker 回退 RRF，Embedding 按既定重试后以 `20012` 使任务失败，生成按既定
-重试后将 assistant 消息收敛为 `cancelled`。安全拒绝使用内部错误分类，不向用户暴露原文、
+脱敏器异常，或发现禁止外发数据却无法可靠处理时，网关 fail-closed：不得创建外部网络请求并返回
+稳定失败分类。调用方随后执行领域规则：Query Rewrite 回退原问题，Reranker 回退 RRF，Embedding 以
+`20012` 使任务失败，Generation 将 assistant 消息收敛为 `failed/error`。安全拒绝不向用户暴露原文、
 供应商响应或具体敏感字段。
 
 **理由**：默认拒绝才能保证出口网关在规则或组件异常时仍是安全边界；最小化数据减少供应商
@@ -206,7 +264,10 @@ Query Rewrite 回退原问题，Reranker 回退 RRF，Embedding 按既定重试�
 
 **决定**：Document 响应统一使用 `version`、`current_task_type`、重试/片段计数、处理时间、
 安全错误摘要与服务端计算的 `allowed_actions`；DocumentTask 响应包含任务类型、资料版本、重试
-上限、进度、各阶段时间和结构化尝试记录。状态枚举分别遵循资料与任务状态机，不复用通用词表。
+上限、进度、各阶段时间和结构化尝试记录。每个 Attempt DTO 必须返回 `id`、`task_id`、
+`attempt_no`、`worker_name`、`status`、非空 `started_at`、`finished_at`、`error_message`、
+`duration_ms` 与 `created_at`；仅未结束时的结束时间、错误和耗时可为空。状态枚举分别遵循资料与任务
+状态机，不复用通用词表。
 
 **理由**：完整 DTO 让轮询、故障展示和契约测试无需猜测字段映射；`allowed_actions` 避免前端把
 Phase 2 的重处理能力误认为 MVP 可用。
@@ -214,7 +275,8 @@ Phase 2 的重处理能力误认为 MVP 可用。
 ## 决策 17：刷新令牌与上传类型使用专用错误码
 
 **决定**：登录凭证错误使用 `10004/401`；刷新令牌无效、过期、撤销或重放使用
-`10006/401 INVALID_REFRESH_TOKEN`，提示“登录状态已失效，请重新登录”。不支持的上传格式使用
+`10006/401 INVALID_REFRESH_TOKEN`，提示“登录状态已失效，请重新登录”，且只拒绝本次刷新，不连带
+撤销该用户的其他 active sessions。不支持的上传格式使用
 `20009/400 UNSUPPORTED_FILE_TYPE`，提示“仅支持 PDF、DOCX、MD 和 TXT 文件”。文件大小与数量
 继续分别使用 `20003`、`20004`。
 
@@ -248,7 +310,7 @@ Phase 2 的重处理能力误认为 MVP 可用。
 
 **决定**：上传接口只对同步校验失败返回 `4xx`，接受成功返回 `202`。解析等异步阶段失败后，
 客户端轮询资料或任务详情并得到 HTTP `200`；响应中的 `status=failed`、`error_code` 和
-`error_message` 表达持久化失败事实。`20001`、`20010`～`20014` 是业务错误码，不对应异步轮询的 HTTP 400。
+`error_message` 表达持久化失败事实。`20001`、`20010`～`20015` 是业务错误码，不对应异步轮询的 HTTP 400。
 
 **理由**：异步错误发生在上传响应完成之后，无法追溯修改原始 HTTP 响应；把错误写入数据库
 符合单一真相源原则，也使刷新页面后的用户仍能看到一致结果。
@@ -257,8 +319,10 @@ Phase 2 的重处理能力误认为 MVP 可用。
 
 **决定**：内容哈希只用于完整性与诊断，不设置跨资料唯一约束；用户重复上传相同内容时创建
 独立 Document。批量上传支持可选 `Idempotency-Key` 请求头，同一用户、同一知识库和同一键在
-保留期内返回首次 `202` 结果，不重复创建文件对象、资料或任务。该记录由数据库唯一约束保证，
-不得依赖 Celery 或 Redis 作为真相源。
+保留期内不重复创建文件对象、资料或任务。请求已收敛为 `accepted` 或 `failed` 时返回首次 `202`
+结果快照；仍处于 `coordinating` 且未超过 300 秒窗口时返回 `20008/409` 且零副作用；超过窗口后，
+重放请求或恢复扫描器在取得同一批次锁并复查状态后调用相同协调函数接管。该记录由数据库唯一
+约束保证，不得依赖 Celery 或 Redis 作为真相源。
 
 **理由**：用户可能有意保留同内容但不同名称/上下文的资料，而网络重试不应制造意外副本；
 分离两种语义可以同时满足产品意图和接口可靠性。
@@ -267,10 +331,12 @@ Phase 2 的重处理能力误认为 MVP 可用。
 
 **决定**：单用户同时处于 `processing` 的资料默认最多 3 个，配置可覆盖。worker 在数据库事务
 中原子获取与资料/任务绑定的名额；未获名额的任务保持 `pending`/`queued`。资料或任务进入
-completed、failed、cancelled、deleting/deleted 时释放名额。恢复扫描器发现 lease 过期且任务仍为
-`running` 时，必须在同一事务中锁定任务和 lease、把活动 attempt 关闭为 `failed`、释放 lease；
-尚有重试预算则递增重试并把任务恢复为 `queued`，否则按已知阶段错误码或无稳定根因时的 `20014`
-使任务与资料失败。同一任务不得同时存在两个活动 attempt。
+completed、failed 或 cancelled 时释放名额。资料进入 `deleting` 时，若没有活动 attempt 则立即
+释放；若仍有活动 attempt，删除事务锁定 lease 并冻结当时的 `expires_at` 作为有界等待上限，心跳
+不得再续租。恢复扫描器发现 lease 过期且任务仍为 `running` 时，必须在同一事务中锁定任务、attempt、
+资料和 lease：正常资料按重试预算将 attempt 关闭并恢复 `queued` 或以稳定错误码失败；`deleting`
+资料则将 attempt/task 置为 `cancelled`、释放 lease 并激活 `delete_cleanup`。存在 running attempt
+却无活动 lease 时立即按相同规则接管。同一任务不得同时存在两个活动 attempt。
 
 **理由**：数据库是任务状态唯一真相源，事务名额能跨多个 worker 保持准确；仅用 Celery 并发
 或 Redis 锁会在消息丢失、过期或重启时产生不可解释的占用状态。
@@ -323,19 +389,20 @@ completed、failed、cancelled、deleting/deleted 时释放名额。恢复扫描
 
 ## 决策 27：异步处理失败使用最小稳定分类
 
-**决定**：保留 `20001 DOCUMENT_PARSE_FAILED`、`20010 EMPTY_DOCUMENT`，新增
+**决定**：保留 `20001 DOCUMENT_PARSE_FAILED`（固定提示“资料解析失败，请删除后重新上传”）、`20010 EMPTY_DOCUMENT`（固定提示“资料内容为空，请删除后重新上传”），新增
 `20011 DOCUMENT_STORAGE_FAILED`、`20012 DOCUMENT_EMBEDDING_FAILED`、
-`20013 DOCUMENT_FINALIZE_FAILED`、`20014 DOCUMENT_RETRY_EXHAUSTED`。已知阶段必须使用对应错误码；
-只有恢复扫描器无法取得稳定根因时才使用 `20014`，未知内部故障使用 `50000`。这些错误通过资料
+`20013 DOCUMENT_FINALIZE_FAILED`、`20014 DOCUMENT_RETRY_EXHAUSTED`、
+`20015 DELETE_CLEANUP_FAILED`。已知阶段必须使用对应错误码；只有恢复扫描器无法取得稳定根因时才使用 `20014`，资料或知识库删除清理未完成必须使用 `20015`，未知内部故障使用 `50000`。这些错误通过资料
 和任务详情的 HTTP `200` 持久化返回。
 
-**理由**：六类错误足以支持用户理解和工程排障，同时避免为每个供应商或解析器异常建立错误码。
+**理由**：七类错误足以支持用户理解和工程排障，同时避免为每个供应商或解析器异常建立错误码。
 
 ## 决策 28：处理名额归属于资料流水线
 
 **决定**：资料首次进入 `processing` 时获取一个数据库名额，跨 parse、chunk、embed、finalize
-持续持有；`task_id` 仅更新为当前阶段归属。资料终态、删除或失联恢复时释放。阶段切换不得释放
-并重新获取。
+持续持有；`task_id` 仅更新为当前阶段归属。资料完成、失败、取消或失联恢复时释放；删除仅在没有
+活动 attempt 时立即释放。若删除时仍有活动 attempt，必须冻结当时的 lease `expires_at`、禁止后续
+心跳续租，并在 worker 正常取消、到期扫描安全接管后才释放。阶段切换不得释放并重新获取。
 
 **理由**：资料级名额与“同时 processing 的资料数”产品规则一致，避免阶段间重复竞争与饥饿。
 
@@ -358,7 +425,11 @@ completed、failed、cancelled、deleting/deleted 时释放名额。恢复扫描
 
 ## 决策 31：资料删除使用专用清理任务、有界等待与 fencing
 
-**决定**：DELETE 资料事务先标记 `deleting`、取消未开始任务，并幂等创建 `delete_cleanup`。
+**决定**：资料 DELETE 命令使用独立、强制 `user_id` 的锁定变更查询，可命中普通可见资料、
+`deleting` 和 `failed/delete_cleanup/20015`，但不得复用于 GET/list。首次删除事务才标记 `deleting`、
+取消未开始任务、递增 `delete_cycle` 并为该轮次创建 `delete_cleanup`；命中 `deleting` 时幂等成功且
+不递增轮次、不创建任务；命中 `failed/delete_cleanup/20015` 时递增轮次并新建清理任务；`deleted`
+返回 404。
 旧版本 `cleanup` 仍只清理非当前版本，不承担资料删除。若不存在运行 attempt，事务释放处理名额并
 激活删除清理；若存在运行 attempt，则删除事务锁定 lease 并以当时的 `expires_at` 冻结等待上限
 （默认最长 300 秒），资料进入 deleting 后心跳不得再续租。若 running attempt 没有活动 lease，
@@ -367,7 +438,9 @@ worker 每次写解析结果、草稿、正式 chunks、checkpoint 或阶段结�
 fencing token，并在同一事务校验 attempt/task 为 `running`、版本一致且资料未进入
 `deleting/deleted`。条件不满足时禁止写入并取消执行。worker 失联时，孤儿任务扫描器在 lease
 超时后事务性关闭 attempt/task、释放名额并激活 `delete_cleanup`。清理完成后保留 `deleted` 墓碑
-和历史引用快照。
+和历史引用快照。删除清理重试耗尽时，资料进入 `failed/delete_cleanup/20015`，仅向所属用户暴露最小
+“删除未完成”墓碑与 `retry_delete`；从该失败状态再次 DELETE 必须建立新任务和 attempt 历史，不得重置旧任务、attempt
+或 retry_count。
 
 **理由**：等待 worker 自觉停止没有终止保证；只发送 Celery revoke 也无法阻止已经运行或网络
 分区中的进程写入。租约给出确定的等待上限，数据库 fencing 把“停止写入”变成原子前置条件，
@@ -376,7 +449,8 @@ fencing token，并在同一事务校验 attempt/task 为 `running`、版本一�
 ## 决策 32：Reranker 在 MVP 中是可选适配器
 
 **决定**：MVP 实现统一网关后的可选 Reranker 适配器和 RRF 回退，但默认部署不要求配置或启用
-Reranker；Phase 2 才把默认启用、模型选择和质量调优纳入交付。未配置不影响就绪状态。
+Reranker；Phase 2 才把默认启用、模型选择和质量调优纳入交付。未配置不影响就绪状态。若配置，
+必须遵守决策 8 的最小评分响应结构；结构无效时整体回退 RRF，不进行部分重排。
 
 **理由**：保留已设计的出口安全边界和扩展点，同时不把可选质量增强变成 MVP 部署依赖。
 
@@ -421,11 +495,16 @@ pending 批次，进程崩溃后行锁自动释放。同一
 ## 决策 36：知识库删除先编排清理再物理级联
 
 **决定**：知识库先进入内部 `deleting` 状态，并对其资料复用资料删除编排。从事务提交开始知识库、
-资料、对话入口和检索均隐藏。所有资料为 `deleted` 且无活动 attempt 后，由现有维护扫描器物理删除
-知识库并级联对话、消息与引用；空知识库可同步删除。
+资料、对话入口和检索均隐藏。普通读取只查询 `active`；DELETE 命令使用独立、带所属用户边界的变更查询，
+可命中 `active/deleting/delete_failed`。重复 DELETE 命中 `deleting` 时幂等成功且不创建重复任务；任一
+子资料进入 `failed/delete_cleanup/20015` 后，维护扫描器将知识库收敛为 `delete_failed`，仅向所属用户
+公开最小墓碑与 `retry_delete`。再次 DELETE 才将知识库转回 `deleting`，并仅为失败子资料建立新删除轮次。
+所有资料为 `deleted` 且无活动 attempt 后，由现有维护
+扫描器物理删除知识库并级联对话、消息与引用；空知识库可同步删除，物理删除后再次 DELETE 返回 404。
 
 **理由**：立即数据库级联会先删掉 worker 的状态真相和外键记录，却不会删除本地卷对象，也无法
-阻止运行 worker 继续落数据。两阶段编排保留恢复所需事实，同时不新增独立服务。
+阻止运行 worker 继续落数据。将删除命令查询与普通可见性查询分开，可在不重新暴露资源的前提下恢复
+失败清理；两阶段编排保留恢复所需事实，同时不新增独立服务。
 
 **备选方案**：数据库立即级联后异步按路径猜测清理；拒绝，因为清理不可审计且易产生孤儿文件。
 
@@ -442,3 +521,19 @@ pending 批次，进程崩溃后行锁自动释放。同一
 
 **备选方案**：Access Token 内嵌 session ID 且不提交 refresh token；可在后续演进，但当前契约已
 明确由刷新令牌建立和轮换会话，增加 JWT claim 不是必要条件。
+
+## 决策 38：GHCR 双镜像采用不可变 SHA 发布与成对回滚
+
+**决定**：GitHub Actions 使用仓库 `GITHUB_TOKEN` 的 `packages: write` 权限发布
+`ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`，workflow 将仓库
+路径统一转为小写。受保护分支使用不可变 `sha-${GITHUB_SHA}` 标签，正式 Git tag 可追加语义版本
+标签；Compose 只从 `BACKEND_IMAGE`、`FRONTEND_IMAGE` 读取完整镜像引用，不使用 `latest`。回滚时
+两个镜像一起切换到上一已验证 SHA 并重新执行 pull、up 和健康检查。镜像回滚不自动降级数据库；
+破坏性迁移发布前人工备份，失败时停止发布并按备份恢复。数据库迁移由部署流程中的单次串行
+one-off 后端容器执行 `alembic upgrade head`，API/worker 不得在启动时自动迁移；迁移成功后才切换
+运行容器，迁移失败则保持旧容器运行。
+
+**理由**：不可变标签让运行版本可审计，成对回滚避免前后端契约漂移；不自动降级数据库避免把
+不可逆迁移伪装成安全操作。
+
+**备选方案**：部署 `latest` 或自动 down migration；拒绝，前者无法准确回滚，后者可能破坏数据。

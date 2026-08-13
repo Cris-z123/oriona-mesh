@@ -1,6 +1,6 @@
 # Implementation Plan: OrionaMesh 个人知识库 RAG MVP
 
-**Branch**: `001-orionamesh-rag-mvp` | **Date**: 2026-08-12 | **Spec**: [spec.md](./spec.md)  
+**Branch**: `001-orionamesh-rag-mvp` | **Date**: 2026-08-13 | **Spec**: [spec.md](./spec.md)
 **Input**: `specs/001-orionamesh-rag-mvp/spec.md` 与 `docs/OrionaMesh.md`
 
 ## Summary
@@ -9,8 +9,9 @@
 Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回、可信回答、引用快照与 SSE；
 前端在后端 REST/SSE 契约冻结后使用 Next.js 实现渲染。数据库是任务状态唯一真相源，所有外部
 模型调用经过统一出口网关。资料及知识库删除采用有界等待、租约恢复和数据库 fencing，防止
-卡死 worker 在删除后继续写入。SC-001～SC-007 仅作为产品成功指标，不属于自动化测试、阶段
-门禁或发布阻断条件；其对应功能行为仍按 FR 和用户故事进行确定性测试。
+卡死 worker 在删除后继续写入；SSE 消息复用维护扫描器收敛失联 `streaming`。检索候选在 RRF
+前经过可配置的证据门槛，空结果直接可信拒答。SC-001～SC-007 仅作为产品成功指标，不属于自动化
+测试、阶段门禁或发布阻断条件；其对应功能行为仍按 FR 和用户故事进行确定性测试。
 
 ## Technical Context
 
@@ -21,7 +22,7 @@ Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回
 **Target Platform**: Linux 容器；Docker Compose 单机部署；GitHub Actions CI/CD  
 **Project Type**: 前后端分离 Web 应用，后端 REST API + SSE  
 **Performance Goals**: SC-001～SC-007 的量化值为产品成功观察指标；当前实施阶段不建立固定评测集、比例断言、性能阈值门禁或发布阻断条件  
-**Constraints**: Backend-First；JWT Access Token 2 小时、Refresh Token 7 天；单文件 50MB、单批 20 个；单用户最多 3 份资料 processing；外部模型出口 fail-closed；日志禁止 payload  
+**Constraints**: Backend-First；JWT Access Token 2 小时、Refresh Token 7 天；单文件 50MB、单批 20 个；单用户最多 3 份资料 processing；外部模型出口 fail-closed；日志禁止 payload；邮箱以单一规范化函数存储、登录和限流；检索只使用通过证据门槛的候选
 **Scale/Scope**: 个人与轻量团队开源 MVP；PDF、DOCX、Markdown、TXT；MVP 不支持 SSO、密码重置、资料重处理/替换或纯聊天
 
 ## Constitution Check
@@ -29,8 +30,8 @@ Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回
 *GATE：Phase 0 前及 Phase 1 后均通过。*
 
 - [x] 所有资源由服务端根据当前认证用户执行归属授权，客户端不能指定可信租户边界。
-- [x] 派生表冗余保存 `user_id`；`chunks` 只能由统一 `ChunkRepository` 读取，检索强制过滤租户、知识库、完成状态和当前版本。
-- [x] PostgreSQL 是任务状态真相源；Celery/Redis 仅执行或传输；任务、attempt、lease、重试与终态均持久化并可恢复。
+- [x] 派生表冗余保存 `user_id`；`chunks` 只能由统一 `ChunkRepository` 读取，检索强制过滤租户、知识库、完成状态、当前版本及最低证据门槛。
+- [x] PostgreSQL 是任务状态真相源；Celery/Redis 仅执行或传输；任务、attempt、lease、消息终态、重试与恢复均持久化并可收敛。
 - [x] 初始任务在整批文件转正前保持不可执行的 `pending`；只在整批就绪后原子切换 `queued`。
 - [x] 阶段完成和下一阶段激活在单一事务中编排，提交后才投递；投递丢失由扫描器恢复。
 - [x] 删除流程以 `attempt_id` 为 fencing token，在持久化写入事务中校验 attempt/task 仍运行且资料未删除；超时由租约扫描器强制收敛。
@@ -45,7 +46,6 @@ Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回
 
 ```text
 specs/001-orionamesh-rag-mvp/
-├── spec.md
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -92,10 +92,10 @@ deploy/
 ### 1. 分阶段实施
 
 1. **A1 后端工程基础**：uv、配置、日志、trace_id、数据库/Redis、迁移与 OpenAPI 基础校验。
-2. **A2 后端认证与授权**：用户、持久化会话、JWT、刷新轮换、租户守卫、分级限流。
+2. **A2 后端认证与授权**：用户、邮箱规范化、持久化会话、JWT、刷新轮换、租户守卫、分级限流。
 3. **A3 后端知识库与资料**：CRUD、整批上传、补偿、幂等、本地持久卷、Document/Task 状态。
 4. **A4 后端异步流水线**：安全解析、处理名额、阶段编排、fencing、任务恢复、模型网关。
-5. **A5 后端 RAG 与对话**：双路召回、RRF、可选 reranker、Context Pack、可信拒答、引用、SSE。
+5. **A5 后端 RAG 与对话**：证据门槛、双路召回、RRF、可选 reranker、Context Pack、可信拒答、引用、SSE 与失联恢复。
 6. **A6 工程化与后端交付**：pnpm 前端骨架、Docker、CI，以及后端架构、迁移、契约和容器验证。
 7. **B1 前端基础**：Next.js、API 客户端、认证状态、错误映射、Pino 脱敏。
 8. **B2 前端业务渲染**：知识库、资料状态、会话、SSE 增量、引用展示。
@@ -104,30 +104,31 @@ deploy/
 SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、用户比例断言或性能阈值阻断；
 相关核心行为通过对应 FR 的确定性测试验证。SC-008 继续作为模型出口安全自动化门禁。
 
-### 2. 请求限流
+### 2. 认证与请求限流
 
-- 注册和登录按来源 IP（20 次/5 分钟）及规范化邮箱 HMAC 摘要（5 次/5 分钟）限制。
-- 刷新请求按来源 IP 及 refresh token HMAC 指纹使用相同阈值；上传按用户 10 次/10 分钟，问答按用户 20 次/分钟，其他认证端点按用户 120 次/分钟。
-- Redis 原子计数只保存不可逆键；超限返回 `10005/429` 与 `Retry-After`，不产生业务副作用。
-- Redis 不可用时状态变更端点返回 `50001/503`；只读 GET 是否 fail-open 由配置决定。
+- 认证输入先去除首尾 Unicode 空白，再通过 `EmailStr` 完成格式校验，最后对完整邮箱执行 Unicode `casefold`；该唯一规范化函数的结果同时用于 users.email 存储、注册冲突、登录查找和账号限流 HMAC。
+- Access Token 缺失、格式错误、签名或算法无效、必填声明错误、类型错误及过期均统一返回 `10001/401`；`10004` 仅用于登录邮箱或密码不匹配。
+- 注册和登录按来源 IP（20 次/5 分钟）及规范化邮箱 HMAC 摘要（5 次/5 分钟）限制。刷新请求按来源 IP 及 refresh token HMAC 指纹使用相同阈值；上传按用户 10 次/10 分钟，问答按用户 20 次/分钟，其他认证端点按用户 120 次/分钟。
+- Redis 原子计数只保存不可逆键；超限返回 `10005/429` 与 `Retry-After`，不产生业务副作用。Redis 不可用时状态变更端点返回 `50001/503`；只读 GET 是否 fail-open 由配置决定。
 
 ### 3. 模型出口网关
 
 - Embedding、Query Rewrite、Reranker、回答生成全部通过内部网关。
 - 供应商、端点、凭证和四类模型由 `MODEL_GATEWAY_*` 配置选择；Reranker 未配置时禁用并回退 RRF。
-- 网关集中完成凭证注入、脱敏、超时、重试、降级、熔断和元数据审计；脱敏失败 fail-closed，日志不记录正文。
+- 网关集中完成凭证注入、脱敏、超时、重试、稳定错误分类和元数据审计，并只向调用方返回最终成功或失败；脱敏失败 fail-closed，日志不记录正文。
+- 业务适配器拥有领域降级：Embedding 使资料/任务失败，Query Rewrite 使用原问题，Reranker 使用原 RRF，Generation 收敛为 `failed/error`。适配器不得再执行超时或重试。
 
-### 4. API 与生命周期契约
+### 4. API、检索与消息生命周期契约
 
-- 非 SSE 响应统一使用 `code/data/msg/trace_id`；所有操作声明 `50000/500`。
+- 非 SSE 响应统一使用 `code/data/msg/trace_id`；所有操作声明 `50000/500`。Attempt DTO 必须包含 worker、起止时间、错误和耗时；`started_at` 在 attempt 创建时即为非空。
+- 向量候选只保留余弦相似度不低于 `0.65` 的项，关键词候选只保留 pg_trgm 相似度不低于 `0.30` 的项；阈值可配置。两路过滤及融合后为空时直接输出可信无证据答复，不调用生成模型。
 - Citation 详情和 SSE 使用同一 DTO；`live` 必须返回两个来源 ID，`snapshot` 必须使两个 ID 为空。
-- 登出请求同时携带 Bearer Access Token 和 `refresh_token` 请求体；会话撤销以 `auth_sessions.revoked_at` 为真相源。
-- 上传 `202` 的每个项目只能是 `queued`，或同步文件转正失败后的 `failed/20011`。
+- assistant 创建后，正常完成及可信无证据答复为 `completed/stop`，供应商、模型或服务错误为 `failed/error`，客户端断开为 `cancelled/cancelled`。维护扫描器对超过 `MESSAGE_STREAMING_STALE_SECONDS` 的记录条件更新为 `failed/error`；该阈值必须覆盖全部可配置改写、重排及生成尝试预算加 60 秒，默认 360 秒。
 
 ### 5. 上传、幂等与恢复边界
 
 - 整批预校验后写临时对象；数据库事务为每批生成 `upload_batch_id`，创建资料、不可执行 `pending` 初始任务和可选幂等记录。
-- 上传协调以 `DOCUMENT_UPLOAD_PENDING_TIMEOUT_SECONDS=300` 为超时边界。协调器按 `upload_batch_id` 对整批 documents 执行 `SELECT ... FOR UPDATE SKIP LOCKED`，在持有该短事务行锁期间完成同卷原子重命名、更新每项活动时间并最终切换批次状态；重放和恢复扫描器获取不到锁时不并发协调，只有获取锁后复查仍超时的 pending 批次可被接管。进程崩溃会释放行锁，已移动对象由幂等协调逻辑识别。
+- 上传协调以 `DOCUMENT_UPLOAD_PENDING_TIMEOUT_SECONDS=300` 为超时边界。协调器按 `upload_batch_id` 对整批 documents 执行 `SELECT ... FOR UPDATE SKIP LOCKED`，在持有该短事务行锁期间完成同卷原子重命名、更新每项活动时间并最终切换批次状态；重放和恢复扫描器获取不到锁时不并发协调，只有获取锁后复查仍超时的 pending 批次可被接管。
 - 同幂等键重放若已收敛则返回首次结果；若同一批次仍在协调且未超时，返回 `20008/409`，不创建新副作用；若已超时，重放请求可使用与扫描器相同的幂等协调逻辑接管。
 - 全部对象转正后，单一事务把整批资料、任务和幂等快照切为 `queued`；失败时整批补偿为 `failed/20011`。提交后投递，投递丢失由扫描器恢复。
 
@@ -148,20 +149,20 @@ SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、�
 ## Phase 0：研究输出
 
 [research.md](./research.md) 记录后端优先、数据库真相源、上传协调、阶段编排、fencing、有界删除、
-知识库编排删除、失联恢复、安全解析、处理并发、本地卷、可信检索、引用 DTO、SSE、令牌、模型
+知识库编排删除、失联恢复、安全解析、处理并发、本地卷、证据门槛、引用 DTO、SSE、令牌、模型
 配置、工具链、限流、模型出口、数据脱敏和日志白名单等已确定决策。
 
 ## Phase 1：设计输出
 
-- [data-model.md](./data-model.md)：领域核心字段、关系、状态机、批次协调、阶段编排、fencing 和数据边界；ORM 与 Alembic 迁移是物理建表真相源。
-- [contracts/openapi.yaml](./contracts/openapi.yaml)：版本化 REST/SSE、统一信封、分页、上传 202 收敛项、会话撤销、Citation 条件契约、错误码与限流。
+- [data-model.md](./data-model.md)：领域核心字段、关系、状态机、批次协调、阶段编排、fencing、消息恢复和数据边界；ORM 与 Alembic 迁移是物理建表真相源。
+- [contracts/openapi.yaml](./contracts/openapi.yaml)：版本化 REST/SSE、统一信封、分页、完整 Attempt DTO、上传 202 收敛项、会话撤销、Citation 条件契约、错误码与限流。
 - [quickstart.md](./quickstart.md)：uv/pnpm、扩展、配置、迁移、确定性功能/安全测试、Docker 与 CI 验证路径。
 
 ## Post-Design Constitution Check
 
-设计后复核仍全部通过。上传批次、阶段切换、运行 attempt、处理名额和删除接管均由 PostgreSQL
-记录及事务驱动；fencing 保证删除提交后运行 worker 无法再写入。超时扫描能使 pending、running、
-deleting 收敛到明确状态。SC-001～SC-007 的产品指标不会替代宪章要求，也不会被误用为自动化门禁。
+设计后复核全部通过。上传批次、阶段切换、运行 attempt、处理名额、失联 assistant 消息和删除接管均由
+PostgreSQL 记录及事务驱动；fencing 保证删除提交后运行 worker 无法再写入。阈值过滤使无关问题无法
+绕过证据不足拒答；SC-001～SC-007 的产品指标不会替代宪章要求，也不会被误用为自动化门禁。
 
 ## Complexity Tracking
 

@@ -5,7 +5,9 @@ info:
   description: >-
     面向私有知识库与可信问答的版本化 REST/SSE 契约。除 SSE 外，所有响应均返回统一 JSON
     信封。所有操作均受后端分级限流保护；x-rate-limit-policy 标识默认策略，实际阈值可由部署
-    配置覆盖。超限统一返回 10005/429 和 Retry-After，且不产生业务副作用。
+    配置覆盖。超限统一返回 10005/429 和 Retry-After，且不产生业务副作用。认证来源 IP 默认
+    使用直连对端；只有直连对端命中显式可信代理 CIDR 时才解析 X-Forwarded-For，非法链或无非可信地址时回退
+    直连对端。
 servers:
   - url: /v1
 security:
@@ -39,8 +41,8 @@ paths:
     put:
       security: []
       summary: 轮换刷新会话
-      x-rate-limit-policy: auth-ip-and-account
-      description: 限流主体为来源 IP 与 refresh token 的 HMAC 指纹；不得把原始 token 写入 Redis、日志或指标。
+      x-rate-limit-policy: refresh-ip-and-token
+      description: 限流主体为来源 IP 与 refresh token 的 HMAC 指纹；不得把原始 token 写入 Redis、日志或指标。同一 refresh token 的并发轮换最多一个成功，后到请求返回 10006/401 且不创建第二个后继会话。
       requestBody: { $ref: '#/components/requestBodies/RefreshSessionRequest' }
       responses:
         '500': { $ref: '#/components/responses/InternalError' }
@@ -113,7 +115,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/KnowledgeBaseDetails' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/KnowledgeBaseNotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -126,19 +127,18 @@ paths:
         '200': { $ref: '#/components/responses/KnowledgeBaseDetails' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/KnowledgeBaseNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
     delete:
       summary: 删除知识库及其资料
       x-rate-limit-policy: authenticated-default
-      description: 先将知识库置为内部 deleting 并编排全部资料的有界停止与 delete_cleanup；提交后立即隐藏，全部清理完成后再物理删除并级联对话、消息和引用。
+      description: 先将知识库置为内部 deleting 并编排全部资料的有界停止与 delete_cleanup；提交后立即从所有普通读取隐藏。DELETE 命令可在所属用户边界内命中 active/deleting/delete_failed；命中 deleting 时幂等成功且不创建任务。任一子资料清理重试耗尽后，知识库收敛为仅所属用户可读取的 delete_failed/20015 最小墓碑与 retry_delete；从该状态再次 DELETE 才转回 deleting，并仅为失败子资料创建新删除轮次。全部清理完成后物理删除并级联对话、消息和引用，之后再次调用返回 404。
       responses:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/EmptySuccess' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/KnowledgeBaseNotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -169,7 +169,6 @@ paths:
         '202': { $ref: '#/components/responses/DocumentUploadAccepted' }
         '400': { $ref: '#/components/responses/UploadValidationFailed' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/KnowledgeBaseNotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
@@ -177,15 +176,16 @@ paths:
     get:
       summary: 列出资料
       x-rate-limit-policy: authenticated-default
+      description: 查询始终先排除内部 deleting/deleted，再应用公开状态过滤；过滤参数不得绕过删除可见性边界。
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/PageSize' }
-        - { $ref: '#/components/parameters/DocumentStatus' }
+        - { $ref: '#/components/parameters/PublicDocumentStatusFilter' }
       responses:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/DocumentList' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/KnowledgeBaseNotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -200,19 +200,17 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/DocumentDetails' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
     delete:
       summary: 删除资料；历史引用仅保留快照
       x-rate-limit-policy: authenticated-default
-      description: 事务提交后资料立即从列表、详情和检索隐藏；运行 attempt 的持久化写入由数据库 fencing 拦截，最多等待当前 lease 到期后由恢复扫描器接管；专用 delete_cleanup 清理对象与派生数据并保留不可查询的 deleted 墓碑，后续 GET 返回 404。
+      description: DELETE 使用带 user_id 的独立锁定变更查询。首次删除递增 delete_cycle、创建独立 delete_cleanup，事务提交后资料立即从列表、详情和检索隐藏；运行 attempt 的持久化写入由数据库 fencing 拦截，最多等待当前 lease 到期后由恢复扫描器接管。命中 deleting 时幂等成功且不递增轮次、不创建任务；清理重试耗尽时仅向所属用户返回 failed/delete_cleanup/20015 的最小“删除未完成”墓碑，allowed_actions 仅为 retry_delete，从该状态重试才递增轮次并创建新任务，且不得重置旧任务或 attempt。清理成功保留不可查询的 deleted 墓碑，之后 GET/DELETE 均返回 404。
       responses:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/EmptySuccess' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -230,7 +228,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/DocumentTaskList' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -256,7 +253,6 @@ paths:
         '201': { $ref: '#/components/responses/ConversationDetails' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/KnowledgeBaseNotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -269,7 +265,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/ConversationDetails' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -282,7 +277,6 @@ paths:
         '200': { $ref: '#/components/responses/ConversationDetails' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -293,7 +287,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/EmptySuccess' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -309,7 +302,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/MessageList' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -336,7 +328,6 @@ paths:
 
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/KnowledgeBaseNotReady' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
@@ -355,7 +346,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '200': { $ref: '#/components/responses/CitationList' }
         '401': { $ref: '#/components/responses/TokenExpired' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
@@ -365,7 +355,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Access Token 有效期 2 小时；Refresh Token 有效期 7 天。
+      description: Access Token 使用固定 HS256、包含 sub/iat/exp/type=access 且有效期 2 小时；Refresh Token 是有效期 7 天的不透明随机值。
   parameters:
     KnowledgeBaseId: { name: knowledgeBaseId, in: path, required: true, schema: { type: string, format: uuid } }
     DocumentId: { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -373,14 +363,19 @@ components:
     MessageId: { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
     Page: { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
     PageSize: { name: page_size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
-    DocumentStatus: { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/DocumentStatus' } }
+    PublicDocumentStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: 仅允许公开可见状态；deleting/deleted 为内部隐藏状态，传入时返回 10003/400。
+      schema: { $ref: '#/components/schemas/DocumentStatus' }
     MessageBefore: { name: before, in: query, required: false, description: 返回该 message_id 之前的记录。, schema: { type: string, format: uuid } }
     MessageLimit: { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: false
-      description: 同一用户与知识库范围内的批量上传重放键；重复请求返回首次已接受结果，不重复创建资源。
+      description: 同一用户与知识库范围内的批量上传重放键；命中已收敛请求时返回首次结果，命中未超时 coordinating 请求时返回 20008/409 且零副作用，超时后由重放或恢复扫描器接管；任何路径均不重复创建资源。
       schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
   requestBodies:
     RegisterRequest: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RegisterInput' } } } }
@@ -410,19 +405,19 @@ components:
     InvalidRequest: { description: 请求参数校验失败；业务码 10003，提示“请求参数不合法，请检查后重试”。, content: { application/json: { schema: { $ref: '#/components/schemas/InvalidRequestErrorEnvelope' } } } }
     UploadValidationFailed: { description: 整批上传格式或限制校验失败且无业务副作用；文件超限为 20003，数量超限为 20004，不支持格式为 20009。, content: { application/json: { schema: { $ref: '#/components/schemas/UploadValidationErrorEnvelope' } } } }
     Unauthorized: { description: 凭证无效；业务码 10004，不暴露凭证细节。, content: { application/json: { schema: { $ref: '#/components/schemas/InvalidCredentialsErrorEnvelope' } } } }
-    InvalidRefreshToken: { description: Refresh Token 无效、过期、已撤销或发生重放；业务码 10006，提示重新登录。, content: { application/json: { schema: { $ref: '#/components/schemas/InvalidRefreshTokenErrorEnvelope' } } } }
+    InvalidRefreshToken: { description: Refresh Token 无效、过期、已撤销或发生重放；业务码 10006，提示重新登录；只拒绝本次刷新，不连带撤销该用户的其他 active sessions。, content: { application/json: { schema: { $ref: '#/components/schemas/InvalidRefreshTokenErrorEnvelope' } } } }
     SessionRevocationUnauthorized:
-      description: Access Token 过期，或请求体 Refresh Token 无效、过期、已撤销或不属于当前用户。
+      description: Access Token 缺失、格式错误、签名或算法无效、必填声明错误、type 错误或过期，或请求体 Refresh Token 无法匹配任何持久化会话、发生重放或不属于当前用户；属于当前用户的已撤销或已过期会话重复删除仍返回成功。
       content:
         application/json:
           schema:
             oneOf:
               - { $ref: '#/components/schemas/TokenExpiredErrorEnvelope' }
               - { $ref: '#/components/schemas/InvalidRefreshTokenErrorEnvelope' }
-    TokenExpired: { description: Token 已过期；业务码 10001，提示“请重新登录”。, content: { application/json: { schema: { $ref: '#/components/schemas/TokenExpiredErrorEnvelope' } } } }
-    Forbidden: { description: 当前用户无权访问资源；业务码 10002，提示“您无权查看此内容”。, content: { application/json: { schema: { $ref: '#/components/schemas/ForbiddenErrorEnvelope' } } } }
-    NotFound: { description: 资源不存在或对当前用户不可见；业务码 20007，不泄露资源归属。, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceNotFoundErrorEnvelope' } } } }
-    KnowledgeBaseNotFound: { description: 知识库不存在；业务码 20002，提示“请求的知识库不存在”。, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeBaseNotFoundErrorEnvelope' } } } }
+    TokenExpired: { description: Access Token 缺失、格式错误、签名或算法无效、必填声明错误、type 错误或过期；业务码 10001，提示“请重新登录”。, content: { application/json: { schema: { $ref: '#/components/schemas/TokenExpiredErrorEnvelope' } } } }
+    Forbidden: { description: 资源已处于当前授权边界内但当前主体仍不允许执行该操作；业务码 10002。不得用于区分跨租户资源是否存在。, content: { application/json: { schema: { $ref: '#/components/schemas/ForbiddenErrorEnvelope' } } } }
+    NotFound: { description: 资源在当前用户范围内不存在或不可见；业务码 20007。服务端不得全局探测资源归属。, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceNotFoundErrorEnvelope' } } } }
+    KnowledgeBaseNotFound: { description: 知识库在当前用户范围内不存在或不可见；业务码 20002，服务端不得全局探测资源归属。, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeBaseNotFoundErrorEnvelope' } } } }
     Conflict: { description: 请求与当前资源状态冲突；业务码 20008，不泄露资源细节。, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceConflictErrorEnvelope' } } } }
     EmailAlreadyExists: { description: 邮箱已注册；业务码 20006，提示“该邮箱已注册，请直接登录”。, content: { application/json: { schema: { $ref: '#/components/schemas/EmailAlreadyExistsErrorEnvelope' } } } }
     KnowledgeBaseNotReady: { description: 知识库没有已完成资料；业务码 20005，提示用户上传或等待资料处理完成。, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeBaseNotReadyErrorEnvelope' } } } }
@@ -575,14 +570,14 @@ components:
             msg: { const: 该邮箱已注册，请直接登录 }
     ErrorCode:
       type: integer
-      enum: [10001, 10002, 10003, 10004, 10005, 10006, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 20010, 20011, 20012, 20013, 20014, 50000, 50001]
-      description: 10001 Token 过期；10002 无权；10003 参数校验失败；10004 登录凭证无效；10005 RATE_LIMIT_EXCEEDED；10006 INVALID_REFRESH_TOKEN；20001 DOCUMENT_PARSE_FAILED（异步）；20002 知识库不存在；20003 FILE_TOO_LARGE；20004 TOO_MANY_FILES；20005 KNOWLEDGE_BASE_NOT_READY；20006 EMAIL_ALREADY_EXISTS；20007 资源不存在；20008 资源冲突；20009 UNSUPPORTED_FILE_TYPE；20010 EMPTY_DOCUMENT（异步）；20011 DOCUMENT_STORAGE_FAILED（异步）；20012 DOCUMENT_EMBEDDING_FAILED（异步）；20013 DOCUMENT_FINALIZE_FAILED（异步）；20014 DOCUMENT_RETRY_EXHAUSTED（异步且无稳定根因）；50000 内部错误；50001 RATE_LIMIT_PROTECTION_UNAVAILABLE。
+      enum: [10001, 10002, 10003, 10004, 10005, 10006, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 20010, 20011, 20012, 20013, 20014, 20015, 50000, 50001]
+      description: 10001 Access Token 无效或过期；10002 当前授权边界内无操作权限；10003 参数校验失败；10004 登录凭证无效（仅邮箱或密码不匹配）；10005 RATE_LIMIT_EXCEEDED；10006 INVALID_REFRESH_TOKEN；20001 DOCUMENT_PARSE_FAILED（异步）；20002 当前用户范围内知识库不存在或不可见；20003 FILE_TOO_LARGE；20004 TOO_MANY_FILES；20005 KNOWLEDGE_BASE_NOT_READY；20006 EMAIL_ALREADY_EXISTS；20007 当前用户范围内资源不存在或不可见；20008 资源状态冲突；20009 UNSUPPORTED_FILE_TYPE；20010 EMPTY_DOCUMENT（异步）；20011 DOCUMENT_STORAGE_FAILED（异步）；20012 DOCUMENT_EMBEDDING_FAILED（异步）；20013 DOCUMENT_FINALIZE_FAILED（异步）；20014 DOCUMENT_RETRY_EXHAUSTED（异步且无稳定根因）；20015 DELETE_CLEANUP_FAILED（资料或知识库删除未完成）；50000 内部错误；50001 RATE_LIMIT_PROTECTION_UNAVAILABLE。
     RegisterInput:
       type: object
       additionalProperties: false
       required: [email, password]
       properties:
-        email: { type: string, format: email }
+        email: { type: string, format: email, description: 服务端去除首尾 Unicode 空白、完成格式校验后对完整邮箱执行 Unicode casefold；该值同时用于账号存储、登录和限流。 }
         password: { type: string, format: password, minLength: 8 }
         display_name: { type: string, minLength: 1, maxLength: 100 }
     LoginInput:
@@ -590,13 +585,13 @@ components:
       additionalProperties: false
       required: [email, password]
       properties:
-        email: { type: string, format: email }
+        email: { type: string, format: email, description: 服务端去除首尾 Unicode 空白、完成格式校验后对完整邮箱执行 Unicode casefold；该值同时用于账号存储、登录和限流。 }
         password: { type: string, format: password }
     RefreshSessionInput:
       type: object
       additionalProperties: false
       required: [refresh_token]
-      properties: { refresh_token: { type: string, minLength: 1 } }
+      properties: { refresh_token: { type: string, minLength: 46, maxLength: 46, pattern: '^rt_[A-Za-z0-9_-]{43}$', description: 32 字节 CSPRNG 随机值的无填充 Base64URL 编码并加 rt_ 前缀；不是 JWT，服务端仅保存 SHA-256 摘要。 } }
     UpdateProfileInput:
       type: object
       additionalProperties: false
@@ -645,28 +640,55 @@ components:
       required: [access_token, refresh_token, token_type, expires_in]
       properties:
         access_token: { type: string }
-        refresh_token: { type: string }
+        refresh_token: { type: string, minLength: 46, maxLength: 46, pattern: '^rt_[A-Za-z0-9_-]{43}$', description: 32 字节 CSPRNG 随机值的无填充 Base64URL 编码并加 rt_ 前缀；不是 JWT，明文仅向客户端返回一次。 }
         token_type: { type: string, const: Bearer }
         expires_in: { type: integer, const: 7200 }
+    KnowledgeBaseStatus:
+      type: string
+      enum: [active, delete_failed]
+      description: 所属用户的知识库列表和详情返回 active 或最小 delete_failed 墓碑；内部 deleting 从公开 DTO 隐藏，所有子资源和检索只接受 active。
     KnowledgeBase:
       type: object
-      required: [id, name, created_at, updated_at]
+      required: [id, name, description, status, delete_error_code, allowed_actions, created_at, updated_at]
+      allOf:
+        - if: { properties: { status: { const: active } }, required: [status] }
+          then:
+            properties:
+              name: { type: string, minLength: 1, maxLength: 120 }
+              delete_error_code: { type: 'null' }
+              allowed_actions: { type: array, prefixItems: [{ const: delete }], minItems: 1, maxItems: 1 }
+        - if: { properties: { status: { const: delete_failed } }, required: [status] }
+          then:
+            properties:
+              name: { type: 'null' }
+              description: { type: 'null' }
+              delete_error_code: { const: 20015 }
+              allowed_actions: { type: array, prefixItems: [{ const: retry_delete }], minItems: 1, maxItems: 1 }
       properties:
         id: { type: string, format: uuid }
-        name: { type: string, minLength: 1, maxLength: 120 }
+        name: { type: ['string', 'null'], minLength: 1, maxLength: 120, description: delete_failed 墓碑中必须为 null，避免重新暴露普通知识库内容。 }
         description: { type: ['string', 'null'], maxLength: 1000 }
+        status: { $ref: '#/components/schemas/KnowledgeBaseStatus' }
+        delete_error_code: { type: ['integer', 'null'], enum: [20015, null] }
+        allowed_actions:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: { type: string, enum: [delete, retry_delete] }
+          description: active 仅为 delete；delete_failed 仅为 retry_delete。
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     DocumentStatus:
       type: string
-      enum: [pending, queued, processing, completed, failed, deleting, deleted]
+      enum: [pending, queued, processing, completed, failed]
+      description: 公开资料状态；内部 deleting/deleted 不会出现在公开 DTO 或过滤条件中。
     DocumentTaskType:
       type: string
       enum: [parse, chunk, embed, finalize, cleanup, delete_cleanup]
       description: cleanup 仅清理旧版本；delete_cleanup 仅用于被删除资料的文件与派生数据清理。
     Document:
       type: object
-      required: [id, knowledge_base_id, filename, file_type, file_size, status, version, current_task_type, retry_count, chunk_count, error_code, error_message, processing_started_at, processing_finished_at, created_at, updated_at, allowed_actions]
+      required: [id, knowledge_base_id, filename, file_type, file_size, status, version, current_task_type, retry_count, delete_cycle, chunk_count, error_code, error_message, processing_started_at, processing_finished_at, created_at, updated_at, allowed_actions]
       properties:
         id: { type: string, format: uuid }
         knowledge_base_id: { type: string, format: uuid }
@@ -679,10 +701,11 @@ components:
           oneOf:
             - { $ref: '#/components/schemas/DocumentTaskType' }
             - { type: 'null' }
-        retry_count: { type: integer, minimum: 0 }
+        retry_count: { type: integer, minimum: 0, description: 镜像 current_task_type 对应任务已启动的重试次数；初次执行为 0，阶段切换或新删除轮次重置为 0，完成且 current_task_type 为 null 时为 0，不做全流水线累计。 }
+        delete_cycle: { type: integer, minimum: 0, description: 已发起的删除清理轮次；仅作审计和运维标识，不代表可读取已删除资料。 }
         chunk_count: { type: integer, minimum: 0 }
-        error_code: { type: ['integer', 'null'], enum: [20001, 20010, 20011, 20012, 20013, 20014, 50000, null], description: 异步处理失败的持久化业务码；详情接口仍返回 HTTP 200。 }
-        error_message: { type: ['string', 'null'], description: 安全提示；20011“文件保存失败，请删除后重新上传”，20012“资料向量化失败，请删除后重新上传”，20013“资料处理结果不一致，请删除后重新上传”，20014“资料处理失败，请删除后重新上传”。 }
+        error_code: { type: ['integer', 'null'], enum: [20001, 20010, 20011, 20012, 20013, 20014, 20015, 50000, null], description: 异步处理失败的持久化业务码；详情接口仍返回 HTTP 200。 }
+        error_message: { type: ['string', 'null'], description: 固定安全提示；20001“资料解析失败，请删除后重新上传”，20010“资料内容为空，请删除后重新上传”，20011“文件保存失败，请删除后重新上传”，20012“资料向量化失败，请删除后重新上传”，20013“资料处理结果不一致，请删除后重新上传”，20014“资料处理失败，请删除后重新上传”，20015“资料删除未完成，请重试删除”。 }
         processing_started_at: { type: ['string', 'null'], format: date-time }
         processing_finished_at: { type: ['string', 'null'], format: date-time }
         created_at: { type: string, format: date-time }
@@ -690,22 +713,23 @@ components:
         allowed_actions:
           type: array
           uniqueItems: true
-          description: 服务端按当前状态计算；失败状态仅允许 delete，客户端不得自行推导重试或重处理能力。
-          items: { type: string, enum: [delete] }
+          description: 服务端按当前状态计算；普通资料或普通处理失败仅允许 delete，failed/delete_cleanup/20015 仅允许 retry_delete；客户端不得自行推导重试处理或替换能力。
+          items: { type: string, enum: [delete, retry_delete] }
     DocumentTask:
       type: object
-      required: [id, document_id, document_version, task_type, status, retry_count, max_retries, total_items, processed_items, error_code, error_message, queued_at, started_at, finished_at, created_at, updated_at, attempts]
+      required: [id, document_id, document_version, task_type, delete_cycle, status, retry_count, max_retries, total_items, processed_items, error_code, error_message, queued_at, started_at, finished_at, created_at, updated_at, attempts]
       properties:
         id: { type: string, format: uuid }
         document_id: { type: string, format: uuid }
         document_version: { type: integer, minimum: 1 }
         task_type: { $ref: '#/components/schemas/DocumentTaskType' }
+        delete_cycle: { type: integer, minimum: 0, description: 非 delete_cleanup 任务为 0；删除清理任务记录所属删除轮次。 }
         status: { type: string, enum: [pending, queued, running, succeeded, failed, cancelled] }
-        retry_count: { type: integer, minimum: 0 }
-        max_retries: { type: integer, minimum: 0 }
+        retry_count: { type: integer, minimum: 0, description: 初次执行为 0；每次重试先递增计数再创建下一个 attempt。 }
+        max_retries: { type: integer, minimum: 0, default: 3, description: 初次执行之外允许的最大重试次数；MVP 默认 3，因此单任务最多 4 个 attempt。达到预算后不得再次排队；每个新任务独立计数，与模型网关调用重试相互独立。 }
         total_items: { type: ['integer', 'null'], minimum: 0 }
         processed_items: { type: integer, minimum: 0 }
-        error_code: { type: ['integer', 'null'], enum: [20001, 20010, 20011, 20012, 20013, 20014, 50000, null], description: 异步任务失败的持久化业务码；任务列表接口仍返回 HTTP 200。 }
+        error_code: { type: ['integer', 'null'], enum: [20001, 20010, 20011, 20012, 20013, 20014, 20015, 50000, null], description: 异步任务失败的持久化业务码；任务列表接口仍返回 HTTP 200。 }
         error_message: { type: ['string', 'null'], description: 与资料详情使用相同的稳定安全提示，不得包含供应商响应、路径或资料正文。 }
         queued_at: { type: ['string', 'null'], format: date-time }
         started_at: { type: ['string', 'null'], format: date-time }
@@ -715,17 +739,17 @@ components:
         attempts: { type: array, items: { $ref: '#/components/schemas/DocumentTaskAttempt' } }
     DocumentTaskAttempt:
       type: object
-      required: [id, task_id, attempt_no, status, created_at]
+      required: [id, task_id, attempt_no, worker_name, status, started_at, finished_at, error_message, duration_ms, created_at]
       properties:
         id: { type: string, format: uuid }
         task_id: { type: string, format: uuid }
-        attempt_no: { type: integer, minimum: 1 }
-        worker_name: { type: ['string', 'null'] }
+        attempt_no: { type: integer, minimum: 1, description: 单任务内从 1 开始严格递增；max_retries=3 时最大为 4。 }
+        worker_name: { type: ['string', 'null'], description: 创建 attempt 的 worker；尚未写入标识时为 null。 }
         status: { type: string, enum: [running, succeeded, failed, cancelled] }
-        started_at: { type: ['string', 'null'], format: date-time }
-        finished_at: { type: ['string', 'null'], format: date-time }
-        error_message: { type: ['string', 'null'] }
-        duration_ms: { type: ['integer', 'null'], minimum: 0 }
+        started_at: { type: string, format: date-time, description: attempt 创建并开始执行时写入，不得为空。 }
+        finished_at: { type: ['string', 'null'], format: date-time, description: 未结束时为 null。 }
+        error_message: { type: ['string', 'null'], description: 未失败或取消时为 null；仅含安全摘要。 }
+        duration_ms: { type: ['integer', 'null'], minimum: 0, description: 未结束时为 null。 }
         created_at: { type: string, format: date-time }
     Conversation:
       type: object
@@ -760,7 +784,25 @@ components:
         created_at: { type: string, format: date-time }
     AssistantMessage:
       type: object
+      description: streaming 仅为生成中；正常完成或可信无证据答复为 completed/stop，供应商、模型或服务错误重试耗尽为 failed/error，客户端连接断开为 cancelled/cancelled。
       required: [id, conversation_id, role, content, status, rewritten_query, finish_reason, created_at]
+      oneOf:
+        - title: 生成中
+          properties:
+            status: { const: streaming }
+            finish_reason: { type: 'null' }
+        - title: 正常完成或可信拒答
+          properties:
+            status: { const: completed }
+            finish_reason: { type: string, enum: [stop, length] }
+        - title: 服务失败
+          properties:
+            status: { const: failed }
+            finish_reason: { const: error }
+        - title: 客户端连接断开
+          properties:
+            status: { const: cancelled }
+            finish_reason: { const: cancelled }
       properties:
         id: { type: string, format: uuid }
         conversation_id: { type: string, format: uuid }
@@ -817,7 +859,7 @@ components:
       required: [message_id, finish_reason]
       properties:
         message_id: { type: string, format: uuid }
-        finish_reason: { type: string, enum: [stop, length, cancelled] }
+        finish_reason: { type: string, enum: [stop, length] }
     MessageStartEnvelope:
       allOf: [{ $ref: '#/components/schemas/ApiEnvelopeBase' }]
       properties: { data: { $ref: '#/components/schemas/MessageStartData' } }
