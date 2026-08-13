@@ -1,1 +1,16 @@
 .worktrees/
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.pyright/
+backend/.venv/
+backend/.env
+
+# Node / pnpm（Phase 7 起使用）
+node_modules/
+.pnpm-store/
+

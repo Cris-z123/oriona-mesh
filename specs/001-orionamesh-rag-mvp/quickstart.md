@@ -13,6 +13,12 @@
 - 使用 `uv sync --locked` 安装后端依赖，使用 `pnpm install --frozen-lockfile` 安装前端依赖；
   仓库只允许根目录 `pnpm-lock.yaml`，锁文件缺失或过期时验证必须失败。
 
+### 基础设施配置契约
+
+| 环境变量 | 默认值 | 说明 |
+|---|---:|---|
+| `DATABASE_URL` | `postgresql+psycopg://orionamesh:orionamesh@localhost:5432/orionamesh` | PostgreSQL 连接串；SQLAlchemy 引擎与 Alembic 迁移共用此单一来源，仅用于本地开发的默认值，部署必须显式覆盖 |
+
 ### 资料处理配置契约
 
 | 环境变量 | 默认值 | 说明 |

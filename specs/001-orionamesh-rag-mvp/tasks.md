@@ -32,19 +32,19 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 **目的**：建立后端项目、测试框架、数据库迁移、可观测性与统一响应基础；本阶段未实现用户故事。
 
-- [ ] T001 创建后端项目清单、Python 3.12 依赖、LangChain 的 OpenAI-compatible 协议集成依赖与开发命令于 `backend/pyproject.toml`
-- [ ] T002 配置 uv 项目依赖、开发依赖组、Python 版本与锁文件策略于 `backend/pyproject.toml`、`backend/uv.lock`
-- [ ] T003 配置 Ruff 格式化/检查、Pyright 类型检查与 pytest 命令于 `backend/pyproject.toml`
-- [ ] T004 [P] 创建 FastAPI 应用入口，从唯一根配置模块加载设置并实现 `/health` 健康检查于 `backend/app/main.py`、`backend/app/core/settings.py`
-- [ ] T005 [P] 配置 pytest 单元、集成和契约测试发现规则于 `backend/pyproject.toml`、`backend/tests/conftest.py`
-- [ ] T006 配置 SQLAlchemy 会话、Alembic 与 PostgreSQL 连接于 `backend/app/infrastructure/database/session.py`、`backend/alembic.ini`、`backend/migrations/env.py`
-- [ ] T007 创建启用 `vector`、`pg_trgm` 与 UUID 扩展的初始迁移于 `backend/migrations/versions/0001_extensions.py`
-- [ ] T008 [P] 实现 structlog JSON 配置及 password/token/secret_key 递归脱敏处理于 `backend/app/core/logging.py`
-- [ ] T009 [P] 编写结构化日志脱敏单元测试于 `backend/tests/unit/core/test_logging.py`
-- [ ] T010 实现生成或透传 UUID `trace_id` 的请求中间件于 `backend/app/api/middleware/trace.py`
-- [ ] T011 实现统一 `ApiEnvelope`、异常映射和 `code/data/msg/trace_id` 响应工厂于 `backend/app/api/v1/schemas/common.py`、`backend/app/api/middleware/errors.py`
-- [ ] T012 [P] 编写统一响应、trace_id 和非 SSE 错误信封契约测试于 `backend/tests/contract/test_api_envelope.py`
-- [ ] T013 [P] 编写 uv 锁文件、Ruff、Pyright 与后端质量命令可执行性检查于 `scripts/check-backend.sh`、`backend/tests/unit/test_toolchain.py`
+- [x] T001 创建后端项目清单、Python 3.12 依赖、LangChain 的 OpenAI-compatible 协议集成依赖与开发命令于 `backend/pyproject.toml`
+- [x] T002 配置 uv 项目依赖、开发依赖组、Python 版本与锁文件策略于 `backend/pyproject.toml`、`backend/uv.lock`
+- [x] T003 配置 Ruff 格式化/检查、Pyright 类型检查与 pytest 命令于 `backend/pyproject.toml`
+- [x] T004 [P] 创建 FastAPI 应用入口，从唯一根配置模块加载设置并实现 `/health` 健康检查于 `backend/app/main.py`、`backend/app/core/settings.py`
+- [x] T005 [P] 配置 pytest 单元、集成和契约测试发现规则于 `backend/pyproject.toml`、`backend/tests/conftest.py`
+- [x] T006 配置 SQLAlchemy 会话、Alembic 与 PostgreSQL 连接于 `backend/app/infrastructure/database/session.py`、`backend/alembic.ini`、`backend/migrations/env.py`
+- [x] T007 创建启用 `vector`、`pg_trgm` 与 UUID 扩展的初始迁移于 `backend/migrations/versions/0001_extensions.py`
+- [x] T008 [P] 实现 structlog JSON 配置及 password/token/secret_key 递归脱敏处理于 `backend/app/core/logging.py`
+- [x] T009 [P] 编写结构化日志脱敏单元测试于 `backend/tests/unit/core/test_logging.py`
+- [x] T010 实现生成或透传 UUID `trace_id` 的请求中间件于 `backend/app/api/middleware/trace.py`
+- [x] T011 实现统一 `ApiEnvelope`、异常映射和 `code/data/msg/trace_id` 响应工厂于 `backend/app/api/v1/schemas/common.py`、`backend/app/api/middleware/errors.py`
+- [x] T012 [P] 编写统一响应、trace_id 和非 SSE 错误信封契约测试于 `backend/tests/contract/test_api_envelope.py`
+- [x] T013 [P] 编写 uv 锁文件、Ruff、Pyright 与后端质量命令可执行性检查于 `scripts/check-backend.sh`、`backend/tests/unit/test_toolchain.py`
 
 **检查点**：后端能启动；扩展、结构化日志、trace_id 和 JSON 信封可独立验证。
 
