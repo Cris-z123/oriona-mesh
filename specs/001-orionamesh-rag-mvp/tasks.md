@@ -8,6 +8,8 @@ description: "OrionaMesh 个人知识库 RAG MVP 的后端优先实施任务"
 [data-model.md](./data-model.md)、[openapi.yaml](./contracts/openapi.yaml)、
 [model-egress.md](./contracts/model-egress.md)、[quickstart.md](./quickstart.md)
 
+> 文档职责：本文件只定义实施顺序、交付物和验证任务；不重新定义需求、数据状态机、API、错误码或配置默认值。实现发生变更时，先更新对应权威文档，再同步受影响任务。
+
 **策略**：严格执行 Backend-First。阶段 1–7 完成后端业务逻辑、工程化基线、REST/SSE 契约与
 A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数据库、队列或文件存储，且不得在客户端复制
 授权、状态机或业务错误判断规则。

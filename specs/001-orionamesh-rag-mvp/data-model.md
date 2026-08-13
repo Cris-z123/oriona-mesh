@@ -3,6 +3,8 @@
 > 本文件定义领域逻辑模型、核心字段、关系与不可变约束，不是完整可执行 DDL。`backend/app/models/`
 > 中的 ORM 模型与 `backend/migrations/versions/` 中的 Alembic 迁移共同构成物理建表真相源，必须
 > 实现并验证本文的字段、外键、索引、状态机、租户隔离与事务边界。
+>
+> 文档职责：本文件是领域数据边界、状态机、事务与不变量的唯一权威来源；用户需求以 `spec.md` 为准，公开传输 DTO 与错误码以 `contracts/openapi.yaml` 为准，运行默认值以 `quickstart.md` 为准。
 
 ## 共同规则
 

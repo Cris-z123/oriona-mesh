@@ -1,57 +1,27 @@
-﻿# oriona-mesh Development Guidelines
+# OrionaMesh 开发指南
 
-Auto-generated from all feature plans. Last updated: 2026-08-13
+## 当前功能
 
-## Active Technologies
-- PostgreSQL（业务与任务真相）、Redis（队列及临时限流计数）、存储后端无关的文件存储 (001-orionamesh-rag-mvp)
-- Python 3.12（后端）；TypeScript 5.x（前端） + FastAPI、Pydantic、SQLAlchemy、Alembic、Celery、Redis、LangChain、structlog、PostgreSQL、pgvector、pg_trgm、JWT；Next.js、React、TypeScript、Tailwind CSS、Shadcn/UI、Pino (001-orionamesh-rag-mvp)
-- Python 3.12；Node.js 22 LTS；TypeScript 5.x + FastAPI、Pydantic v2、LangChain、Celery、Redis、SQLAlchemy 2、Alembic、psycopg、PyJWT、structlog；Next.js、React、Tailwind CSS、shadcn/ui、pino (001-orionamesh-rag-mvp)
-- PostgreSQL 16（`pgvector`、`pg_trgm`）；Redis 7 仅用于队列、缓存与瞬时限流计数；文件存储通过抽象接口接入本地卷或对象存储 (001-orionamesh-rag-mvp)
-- Python 3.12、TypeScript 5、Node.js LTS + FastAPI、Pydantic、LangChain、Celery、SQLAlchemy/Alembic、Next.js、React、Tailwind CSS、Shadcn/UI、structlog、Pino (001-orionamesh-rag-mvp)
-- PostgreSQL 16（`pgvector`、`pg_trgm`）；Redis 7 仅用于队列、缓存与瞬时限流计数；MVP 文件存储使用挂载到 `/data/orionamesh` 的本地持久卷，数据库仅保存相对对象键；对象存储通过同一抽象接口后续扩展 (001-orionamesh-rag-mvp)
-- Python 3.12；TypeScript 5.x；Node.js 22 LTS + FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino (001-orionamesh-rag-mvp)
-- PostgreSQL 16（pgvector、pg_trgm）；Redis 7 仅用于队列与瞬时限流；MVP 使用挂载到 `/data/orionamesh` 的本地持久卷并只保存相对对象键 (001-orionamesh-rag-mvp)
+- 当前实施范围：`specs/001-orionamesh-rag-mvp`。
+- 开发前先阅读该目录的 [spec.md](./specs/001-orionamesh-rag-mvp/spec.md)、[plan.md](./specs/001-orionamesh-rag-mvp/plan.md) 和 [tasks.md](./specs/001-orionamesh-rag-mvp/tasks.md)。
+- 项目不可协商原则以 [.specify/memory/constitution.md](./.specify/memory/constitution.md) 为准。
 
+## 文档权威边界
 
+不要在本文件复制业务规则或接口细节；发生冲突时按以下来源执行：
 
-## Project Structure
+- 用户需求、范围和验收条件：[spec.md](./specs/001-orionamesh-rag-mvp/spec.md)
+- 架构、模块边界和实施顺序：[plan.md](./specs/001-orionamesh-rag-mvp/plan.md)
+- 数据不变量、状态机和事务：[data-model.md](./specs/001-orionamesh-rag-mvp/data-model.md)
+- REST/SSE 与错误码：[openapi.yaml](./specs/001-orionamesh-rag-mvp/contracts/openapi.yaml)
+- 模型出口、脱敏与审计：[model-egress.md](./specs/001-orionamesh-rag-mvp/contracts/model-egress.md)
+- 配置、部署和验证：[quickstart.md](./specs/001-orionamesh-rag-mvp/quickstart.md)
 
-```text
-src/
-tests/
-```
+变更需求、数据、接口或配置时，先更新对应权威文档，再同步受影响任务；不要在多个文档维护同一份规则。
 
-## Commands
+## 实施约束
 
-# Add commands for 
-
-## Code Style
-
-General: Follow standard conventions
-
-## Recent Changes
-- 001-orionamesh-rag-mvp: Added Python 3.12；TypeScript 5.x；Node.js 22 LTS + FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino
-- 001-orionamesh-rag-mvp: Added Python 3.12；TypeScript 5.x；Node.js 22 LTS + FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino
-- 001-orionamesh-rag-mvp: Added Python 3.12；TypeScript 5.x；Node.js 22 LTS + FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino
-
-
-
-<!-- MANUAL ADDITIONS START -->
-## OrionaMesh MVP（001-orionamesh-rag-mvp）
-
-- 后端：Python 3.12、FastAPI、Pydantic、SQLAlchemy、Alembic、Celery、Redis、
-  PostgreSQL（pgvector、pg_trgm）、LangChain 与 structlog；依赖使用 uv 和 `uv.lock`。
-- 前端：TypeScript、Next.js、React、Tailwind CSS、Shadcn/UI 与 Pino；依赖使用 pnpm 和
-  `pnpm-lock.yaml`。
-- 代码结构为 `backend/app/{api/v1,core,db,models,repositories,services,workers}` 和
-  `frontend/{app,components,features,lib/api}`；测试位于 `backend/tests/` 与 `frontend/tests/`。
-- 实施顺序不可调整：先完成并验证后端业务逻辑与 `/v1` REST/SSE 契约，再开始前端渲染。
-- 所有资源必须服务端按当前用户授权；检索强制过滤用户、知识库、完成状态与当前资料版本。
-- `embed` 幂等直写 `chunks`，`finalize` 只校验并翻转资料状态；所有片段读取必须经统一
-  `ChunkRepository`，禁止路由、服务或 worker 直接读取该表。
-- 资料删除使用 `deleting → deleted` 专用清理；清理重试耗尽时使用
-  `failed/delete_cleanup/20015` 最小墓碑。重试删除必须递增 `delete_cycle` 并新建清理任务，
-  不得重置历史任务、attempt 或重试计数。
-- 质量门禁：Ruff、Pyright、pytest、OpenAPI 校验；ESLint、Prettier、TypeScript、Vitest 和
-  Playwright；Docker Compose 与 GitHub Actions 必须使用锁定依赖安装。
-<!-- MANUAL ADDITIONS END -->
+- 严格按 Backend-First：完成并验证后端业务逻辑与冻结契约后，才能开始前端渲染。
+- 后端使用 Python 3.12 与 `uv`；前端使用 Node.js 22 LTS、pnpm 与根目录唯一的 `pnpm-lock.yaml`。
+- 实现目录与质量命令以 `plan.md`、`tasks.md` 和 `quickstart.md` 为准；代码与测试必须随任务同步交付。
+- 不得绕过服务端授权、统一仓储、任务状态真相源或模型出口网关；具体边界由项目宪章和上述权威文档定义。

@@ -3,6 +3,8 @@
 **Branch**: `001-orionamesh-rag-mvp` | **Date**: 2026-08-13 | **Spec**: [spec.md](./spec.md)
 **Input**: `specs/001-orionamesh-rag-mvp/spec.md` 与 `docs/OrionaMesh.md`
 
+> 文档职责：本文件定义实现架构、模块边界、实施顺序与设计结论；需求以 `spec.md` 为准，数据和状态不变量以 `data-model.md` 为准，公开接口以 `contracts/openapi.yaml` 为准，运行配置与验证步骤以 `quickstart.md` 为准，已选方案的理由以 `research.md` 为准。不得在本文件复制或另行修改这些契约。
+
 ## Summary
 
 构建前后端分离、后端优先的个人知识库 RAG MVP。后端使用 FastAPI、PostgreSQL、pgvector、

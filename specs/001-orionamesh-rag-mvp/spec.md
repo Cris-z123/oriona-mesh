@@ -5,6 +5,8 @@
 **状态**：开发就绪
 **输入**：基于 `docs/OrionaMesh.md` 创建 OrionaMesh 个人知识库 RAG MVP 功能规格。
 
+> 文档职责：本文件是用户需求、范围、验收场景与成功标准的唯一权威来源；实现架构、数据不变量、公开接口、内部模型出口、运行配置和任务顺序分别以 `plan.md`、`data-model.md`、`contracts/`、`quickstart.md` 与 `tasks.md` 为准。
+
 ## 澄清
 
 ### 会话 2026-08-12

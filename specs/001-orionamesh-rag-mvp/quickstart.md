@@ -1,5 +1,7 @@
 # 快速验证：OrionaMesh 个人知识库 RAG MVP
 
+> 文档职责：本文件是环境变量、默认值、依赖安装、部署与验证步骤的唯一运行手册；业务需求、数据不变量和 API 结构分别以 `spec.md`、`data-model.md` 和 `contracts/` 为准。
+
 ## 前置条件
 
 - 可用的 PostgreSQL，已启用向量与相似文本匹配扩展。
