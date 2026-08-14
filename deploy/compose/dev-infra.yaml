@@ -1,0 +1,39 @@
+# 本地开发基础设施：PostgreSQL 16（pgvector/pg_trgm/pgcrypto）+ Redis 7。
+# 仅用于本地开发与自动化测试；云端部署编排见 T099（阶段 7）的 compose.yaml。
+#
+# 用法：docker compose -f deploy/compose/dev-infra.yaml up -d
+# 连接信息（与 backend/.env.local、backend/.env.test 一致）：
+#   DATABASE_URL=postgresql+psycopg://orionamesh:orionamesh@localhost:5432/orionamesh
+#   TEST_DATABASE_URL=postgresql+psycopg://orionamesh:orionamesh@localhost:5432/orionamesh_test
+#   REDIS_URL=redis://localhost:6379/0
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: orionamesh
+      POSTGRES_PASSWORD: orionamesh
+      POSTGRES_DB: orionamesh
+    ports:
+      - "5432:5432"
+    volumes:
+      - orionamesh-pgdata:/var/lib/postgresql/data
+      # 首次初始化时创建测试库（orionamesh 为容器超级用户，夹具也可自动建库兜底）
+      - ./dev-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orionamesh -d orionamesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  orionamesh-pgdata:

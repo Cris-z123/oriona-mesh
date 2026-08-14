@@ -2,8 +2,11 @@
 
 安全规则（决策 7）：日志必须过滤 ``password``、``token``、``secret_key`` 及其嵌套变体。
 脱敏按键名递归匹配（不区分大小写），覆盖嵌套字典与列表；匹配键的取值统一替换为占位符，
-绝不记录原值。模型调用审计（Phase 2 T033）在网关审计器中使用独立字段构造，不在本处理器
-白名单之外泄露 payload；若审计字段名包含 ``token``（如 token 计数）须在 T033 明确命名边界。
+绝不记录原值。
+
+例外（模型调用审计，FR-029 / model-egress.md 白名单）：``input_tokens``/
+``output_tokens`` 是白名单要求的**数值型 token 计数**，不是令牌本身；键名包含
+``token`` 但值为数值（int/float/bool/None）时不脱敏，字符串等对象值一律脱敏。
 """
 
 import logging
@@ -38,6 +41,10 @@ def _redact(value: Any, key: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_redact(item, key) for item in value]
     if _is_sensitive_key(key):
+        # 数值型 token 计数（input_tokens/output_tokens）不是令牌，保留；
+        # 其余对象值（字符串令牌/密码等）一律脱敏。
+        if isinstance(value, (int, float, bool)) or value is None:
+            return value
         return _REDACTED
     return value
 

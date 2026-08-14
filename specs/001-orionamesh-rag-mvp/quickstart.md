@@ -13,6 +13,24 @@
 - 使用 `uv sync --locked` 安装后端依赖，使用 `pnpm install --frozen-lockfile` 安装前端依赖；
   仓库只允许根目录 `pnpm-lock.yaml`，锁文件缺失或过期时验证必须失败。
 
+### 环境变量文件与部署安全契约
+
+| 场景 | `APP_ENV` | 配置来源 |
+|---|---|---|
+| 本地开发 | `development`（默认） | 读取 `backend/.env.local`（示例见 `backend/.env.local.example`），环境变量优先 |
+| 自动化测试 | `test` | 读取 `backend/.env.test`；pytest 夹具在导入应用前加载该文件并固定 `APP_ENV=test` |
+| 云端 staging / production | `staging` / `production` | 不读取仓库中任何 `.env` 文件；由 Docker 或 CI 直接注入环境变量 |
+
+- 缺少关键变量时应用启动直接失败（`SystemExit`，列出全部缺失项）：`AUTH_JWT_SECRET_KEY`
+  （UTF-8 编码后至少 32 字节）、`RATE_LIMIT_SUBJECT_HMAC_KEY`、
+  `MODEL_GATEWAY_ENDPOINT`/`MODEL_GATEWAY_API_KEY`/`MODEL_GATEWAY_QUERY_REWRITE_MODEL`/
+  `MODEL_GATEWAY_GENERATION_MODEL` 及既有 endpoint/模型/检索规则。
+- `APP_ENV=production` 或 `staging` 时拒绝回退到本地开发默认值：`DATABASE_URL`、
+  `REDIS_URL`、`DOCUMENT_STORAGE_ROOT`、`AUTH_JWT_SECRET_KEY` 必须由部署环境显式注入
+  （未注入即拒绝启动），从而排除默认数据库密码、开发密钥与本地存储路径回退。
+- 仓库中所有 `.env.local`/`.env.test` 文件均被 `.gitignore` 排除，不得提交；
+  仅允许提交 `.env.local.example` 等示例模板。
+
 ### 基础设施配置契约
 
 | 环境变量 | 默认值 | 说明 |

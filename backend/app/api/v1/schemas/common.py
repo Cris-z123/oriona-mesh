@@ -16,6 +16,11 @@ SUCCESS_CODE = 0
 DEFAULT_ERROR_MSG = "系统繁忙，请稍后再试"
 VALIDATION_ERROR_MSG = "请求参数不合法，请检查后重试"
 RESOURCE_NOT_FOUND_MSG = "请求的资源不存在"
+RATE_LIMIT_EXCEEDED_MSG = "请求过于频繁，请稍后再试"
+PROTECTION_UNAVAILABLE_MSG = "系统繁忙，请稍后再试"
+RESOURCE_CONFLICT_MSG = "请求与当前资源状态冲突"
+TOKEN_INVALID_MSG = "请重新登录"
+KNOWLEDGE_BASE_NOT_FOUND_MSG = "请求的知识库不存在"
 
 
 class ApiEnvelope(BaseModel):
