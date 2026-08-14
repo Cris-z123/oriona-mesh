@@ -14,8 +14,10 @@ from app.core.settings import get_settings
 settings = get_settings()
 
 engine = create_engine(
-    settings.database_url,
+    settings.database_url_value,
     pool_pre_ping=True,
+    # 数据库不可达时就绪检查/健康检查快速失败，避免连接无限挂起。
+    connect_args={"connect_timeout": 3},
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

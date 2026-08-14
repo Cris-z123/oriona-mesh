@@ -15,10 +15,12 @@ dependencies = [
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
+    "pgvector>=0.3",
     "redis>=5.2",
     "celery>=5.4",
     # 认证
     "pyjwt>=2.10",
+    "email-validator>=2.2",
     # 模型出口：LangChain OpenAI-compatible 协议集成
     "langchain-openai>=0.2",
 ]
@@ -47,6 +49,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 依赖注入是声明式默认值，允许 Depends/Query 出现在参数默认位置。
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
 
 [tool.pyright]
 pythonVersion = "3.12"

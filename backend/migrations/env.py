@@ -9,6 +9,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+# 导入领域模型以注册全部表到 target_metadata（autogenerate/check 与测试共用）。
+import app.models  # noqa: E402, F401
 from app.core.settings import get_settings
 from app.db.base import Base
 
@@ -24,7 +26,7 @@ def run_migrations_offline() -> None:
     """离线模式：不连接数据库，仅生成 SQL。"""
     settings = get_settings()
     context.configure(
-        url=settings.database_url,
+        url=settings.database_url_value,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -36,7 +38,11 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """在线模式：连接数据库执行迁移。"""
     settings = get_settings()
-    connectable = create_engine(settings.database_url, poolclass=pool.NullPool)
+    connectable = create_engine(
+        settings.database_url_value,
+        poolclass=pool.NullPool,
+        connect_args={"connect_timeout": 3},
+    )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
