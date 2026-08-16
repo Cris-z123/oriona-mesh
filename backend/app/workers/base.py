@@ -63,9 +63,7 @@ def begin_attempt(
 
     :raises TaskNotRunnableError: 任务非 queued（pending 初始任务、重复投递或已终态）。
     """
-    task = session.scalar(
-        select(DocumentTask).where(DocumentTask.id == task_id).with_for_update()
-    )
+    task = session.scalar(select(DocumentTask).where(DocumentTask.id == task_id).with_for_update())
     if task is None:
         raise TaskNotRunnableError("task not found")
     if task.status != DocumentTaskStatus.QUEUED:
@@ -113,17 +111,18 @@ def converge_cancelled(session: Session, *, attempt_id: uuid.UUID) -> None:
     from app.models.enums import DocumentAttemptStatus, DocumentTaskStatus
 
     attempt = session.scalar(
-        select(DocumentTaskAttempt)
-        .where(DocumentTaskAttempt.id == attempt_id)
-        .with_for_update()
+        select(DocumentTaskAttempt).where(DocumentTaskAttempt.id == attempt_id).with_for_update()
     )
     if attempt is None or attempt.status != DocumentAttemptStatus.RUNNING:
         session.rollback()
         return
     now = datetime.now(UTC)
     finish_attempt(
-        session, attempt, status=DocumentAttemptStatus.CANCELLED,
-        error_message="fencing rejected write", now=now,
+        session,
+        attempt,
+        status=DocumentAttemptStatus.CANCELLED,
+        error_message="fencing rejected write",
+        now=now,
     )
     task = session.scalar(
         select(DocumentTask).where(DocumentTask.id == attempt.task_id).with_for_update()

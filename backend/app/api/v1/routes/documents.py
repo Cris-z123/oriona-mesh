@@ -49,9 +49,7 @@ def upload_documents(
     db: Session = Depends(get_db),
 ) -> dict:
     if idempotency_key is not None:
-        if not (8 <= len(idempotency_key) <= 128) or not _IDEMPOTENCY_KEY_RE.match(
-            idempotency_key
-        ):
+        if not (8 <= len(idempotency_key) <= 128) or not _IDEMPOTENCY_KEY_RE.match(idempotency_key):
             raise ApiError(10003, VALIDATION_ERROR_MSG, 400)
     outcome = DocumentService(db).upload(
         current_user.id, knowledge_base_id, files, idempotency_key=idempotency_key
@@ -126,9 +124,7 @@ def list_document_tasks(
     attempts_repo = DocumentTaskAttemptRepository(db)
     items: list[dict] = []
     for task in tasks:
-        items.append(
-            document_task_dto(task, attempts_repo.list_for_task(task.id, current_user.id))
-        )
+        items.append(document_task_dto(task, attempts_repo.list_for_task(task.id, current_user.id)))
     return success_response(
         {"items": items, "page": page, "page_size": page_size, "total": total}
     ).model_dump(mode="json")

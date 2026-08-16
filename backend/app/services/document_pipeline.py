@@ -176,8 +176,11 @@ class DocumentPipelineOrchestrator:
             # 确定性业务失败：立即收敛资料失败并释放名额。
             message = error_message or ASYNC_ERROR_MESSAGES.get(error_code, error_message or "")
             finish_attempt(
-                self.session, attempt, status=DocumentAttemptStatus.FAILED,
-                error_message=message, now=now,
+                self.session,
+                attempt,
+                status=DocumentAttemptStatus.FAILED,
+                error_message=message,
+                now=now,
             )
             task.status = DocumentTaskStatus.FAILED
             task.error_code = error_code
@@ -194,8 +197,11 @@ class DocumentPipelineOrchestrator:
         # 未归类异常：按重试预算恢复（任务级重试与模型网关重试相互独立）。
         if task.retry_count < task.max_retries:
             finish_attempt(
-                self.session, attempt, status=DocumentAttemptStatus.FAILED,
-                error_message="worker execution failed", now=now,
+                self.session,
+                attempt,
+                status=DocumentAttemptStatus.FAILED,
+                error_message="worker execution failed",
+                now=now,
             )
             self.tasks.requeue(task, now=now)
             document.retry_count = task.retry_count
@@ -206,8 +212,11 @@ class DocumentPipelineOrchestrator:
             return
         message = ASYNC_ERROR_MESSAGES[20014]
         finish_attempt(
-            self.session, attempt, status=DocumentAttemptStatus.FAILED,
-            error_message=message, now=now,
+            self.session,
+            attempt,
+            status=DocumentAttemptStatus.FAILED,
+            error_message=message,
+            now=now,
         )
         task.status = DocumentTaskStatus.FAILED
         task.error_code = 20014
@@ -244,8 +253,11 @@ class DocumentPipelineOrchestrator:
             # 发布校验失败：数量不一致持久化 20013，未发布片段仍不可检索。
             message = ASYNC_ERROR_MESSAGES[20013]
             finish_attempt(
-                self.session, attempt, status=DocumentAttemptStatus.FAILED,
-                error_message=message, now=now,
+                self.session,
+                attempt,
+                status=DocumentAttemptStatus.FAILED,
+                error_message=message,
+                now=now,
             )
             task.status = DocumentTaskStatus.FAILED
             task.error_code = 20013

@@ -94,6 +94,7 @@ def _running_state(
     retry_count: int = 0,
 ) -> tuple[DocumentTask, DocumentTaskAttempt, DocumentProcessingLease]:
     doc = db_session.get(Document, doc_id)
+    assert doc is not None
     task = _task(db_session, doc_id)
     doc.status = doc_status
     task.status = task_status
@@ -190,13 +191,18 @@ class TestRetryBudget:
 
         monkeypatch.setattr("app.workers.document_parse.parse_safely", always_fail)
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
+        task = _task(db_session, doc_id)
         for _round in range(4):
-            task = _task(db_session, doc_id)
             process_parse(
                 db_session,
                 task_id=task.id,
-                user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-                file_storage=storage, dispatch=dispatch,
+                user_id=user_id,
+                knowledge_base_id=kb_id,
+                document_id=doc_id,
+                document_version=1,
+                file_storage=storage,
+                dispatch=dispatch,
             )
             db_session.refresh(doc)
         # 初次 attempt_no=1/retry_count=0；最多 4 个 attempt；达到预算不再排队。
@@ -255,8 +261,12 @@ class TestRetryBudget:
             process_parse(
                 db_session,
                 task_id=task.id,
-                user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-                file_storage=storage, dispatch=dispatch,
+                user_id=user_id,
+                knowledge_base_id=kb_id,
+                document_id=doc_id,
+                document_version=1,
+                file_storage=storage,
+                dispatch=dispatch,
             )
             db_session.refresh(doc)
         # 失败期间 documents.retry_count 镜像当前任务。
@@ -265,14 +275,13 @@ class TestRetryBudget:
             db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type="chunk").one()
         )
         db_session.refresh(doc)
+        assert doc is not None
         assert doc.status == DocumentStatus.PROCESSING
         assert doc.current_task_type == DocumentTaskType.CHUNK
         assert chunk_task.retry_count == 0
         assert doc.retry_count == 0
         attempts = (
-            db_session.query(DocumentTaskAttempt)
-            .order_by(DocumentTaskAttempt.attempt_no)
-            .all()
+            db_session.query(DocumentTaskAttempt).order_by(DocumentTaskAttempt.attempt_no).all()
         )
         assert [a.attempt_no for a in attempts] == [1, 2, 3]
         assert calls[-1] == ("orionamesh.document_chunk", (chunk_task.id,))
@@ -333,13 +342,20 @@ class TestDeleteCoordination:
             db_session, user_id, kb_id, doc_id, lease_expired=False
         )
         repo = ProcessingLeaseRepository(db_session)
+        assert lease.task_id is not None
         assert repo.heartbeat(lease.id, doc_id, lease.task_id, lease_seconds=300) is True
-        db_session.get(Document, doc_id).status = DocumentStatus.DELETING
+        hidden = db_session.get(Document, doc_id)
+        assert hidden is not None
+        hidden.status = DocumentStatus.DELETING
         db_session.commit()
-        before = db_session.get(DocumentProcessingLease, lease.id).expires_at
+        before = db_session.get(DocumentProcessingLease, lease.id)
+        assert before is not None
+        before_expires_at = before.expires_at
         assert repo.heartbeat(lease.id, doc_id, lease.task_id, lease_seconds=300) is False
         # 资料进入 deleting 后心跳不得续租：expires_at 不延长。
-        assert db_session.get(DocumentProcessingLease, lease.id).expires_at == before
+        after = db_session.get(DocumentProcessingLease, lease.id)
+        assert after is not None
+        assert after.expires_at == before_expires_at
 
     def test_expired_lease_on_deleting_document_cancels_and_activates_delete_cleanup(
         self,
@@ -353,6 +369,7 @@ class TestDeleteCoordination:
         doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "del-scan")
         calls.clear()  # 种子上传的投递不计入断言
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         task, attempt, lease = _running_state(
             db_session,
             user_id,
@@ -365,9 +382,7 @@ class TestDeleteCoordination:
         doc.current_task_type = DocumentTaskType.PARSE
         db_session.commit()
 
-        recovered = scan_expired_leases(
-            db_session, dispatch=dispatch, now=datetime.now(UTC)
-        )
+        recovered = scan_expired_leases(db_session, dispatch=dispatch, now=datetime.now(UTC))
         assert recovered == 1
         db_session.refresh(task)
         db_session.refresh(attempt)

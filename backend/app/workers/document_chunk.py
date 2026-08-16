@@ -148,4 +148,3 @@ def register_tasks(celery_app) -> None:
             )
         finally:
             session.close()
-

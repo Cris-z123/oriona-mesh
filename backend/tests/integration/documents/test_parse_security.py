@@ -84,6 +84,7 @@ class TestParseWorkerTerminalStates:
         )
         calls.clear()  # 种子上传的投递不计入断言
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         task = db_session.query(DocumentTask).filter_by(document_id=doc_id).one()
         process_parse(
             db_session,
@@ -123,6 +124,7 @@ class TestParseWorkerTerminalStates:
         )
         calls.clear()  # 种子上传的投递不计入断言
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         task = db_session.query(DocumentTask).filter_by(document_id=doc_id).one()
         process_parse(
             db_session,
@@ -156,7 +158,7 @@ class TestParseWorkerTerminalStates:
             db_session, storage, dispatch, "ok.pdf", _text_pdf("hello parse pipeline")
         )
         calls.clear()  # 种子上传的投递不计入断言
-        doc = db_session.get(Document, doc_id)
+        doc = db_session.query(Document).filter_by(id=doc_id).one()
         task = db_session.query(DocumentTask).filter_by(document_id=doc_id).one()
         process_parse(
             db_session,
@@ -172,6 +174,7 @@ class TestParseWorkerTerminalStates:
         db_session.refresh(task)
         # 当前任务成功，下一阶段幂等创建并排队。
         assert task.status == DocumentTaskStatus.SUCCEEDED
+        assert doc.current_task_type is not None
         assert doc.current_task_type.value == "chunk"
         assert doc.status == DocumentStatus.PROCESSING
         chunk_task = db_session.query(DocumentTask).filter_by(task_type="chunk").one()

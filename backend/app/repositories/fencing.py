@@ -33,9 +33,7 @@ def validate_attempt_write(
 ) -> tuple[DocumentTaskAttempt, DocumentTask, Document]:
     """锁定并校验 attempt/task/document 后返回三者（调用方保持同一事务）。"""
     attempt = session.scalar(
-        select(DocumentTaskAttempt)
-        .where(DocumentTaskAttempt.id == attempt_id)
-        .with_for_update()
+        select(DocumentTaskAttempt).where(DocumentTaskAttempt.id == attempt_id).with_for_update()
     )
     if attempt is None or attempt.status != DocumentAttemptStatus.RUNNING:
         raise FencingError("attempt is not running")
@@ -54,9 +52,7 @@ def validate_attempt_write(
     if task_type is not None and task.task_type != task_type:
         raise FencingError("task type mismatch")
 
-    document = session.scalar(
-        select(Document).where(Document.id == document_id).with_for_update()
-    )
+    document = session.scalar(select(Document).where(Document.id == document_id).with_for_update())
     if document is None:
         raise FencingError("document not found")
     if document.status in (DocumentStatus.DELETING, DocumentStatus.DELETED):

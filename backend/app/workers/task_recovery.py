@@ -76,21 +76,23 @@ def scan_upload_batches(
     settings = get_settings()
     storage = storage or default_file_storage()
     cutoff = now - timedelta(seconds=settings.storage.upload_pending_timeout_seconds)
-    batch_ids = session.execute(
-        select(Document.upload_batch_id)
-        .where(
-            Document.status == DocumentStatus.PENDING,
-            Document.created_at < cutoff,
+    batch_ids = (
+        session.execute(
+            select(Document.upload_batch_id)
+            .where(
+                Document.status == DocumentStatus.PENDING,
+                Document.created_at < cutoff,
+            )
+            .distinct()
         )
-        .distinct()
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     service = DocumentService(session, file_storage=storage, dispatch=dispatch)
     taken: list[uuid.UUID] = []
     for batch_id in batch_ids:
         request = session.scalar(
-            select(DocumentUploadRequest).where(
-                DocumentUploadRequest.upload_batch_id == batch_id
-            )
+            select(DocumentUploadRequest).where(DocumentUploadRequest.upload_batch_id == batch_id)
         )
         try:
             service.coordinate_batch(batch_id, request)
@@ -180,9 +182,7 @@ def _recover_running_without_lease(
 ) -> bool:
     """单条无租约 running 任务接管：锁定后复查并事务性收敛。"""
     attempt = session.scalar(
-        select(DocumentTaskAttempt)
-        .where(DocumentTaskAttempt.id == attempt_id)
-        .with_for_update()
+        select(DocumentTaskAttempt).where(DocumentTaskAttempt.id == attempt_id).with_for_update()
     )
     if attempt is None or attempt.status != DocumentAttemptStatus.RUNNING:
         session.rollback()
@@ -202,8 +202,11 @@ def _recover_running_without_lease(
     ):
         # delete_cleanup 失联：按重试预算重排或收敛 20015 墓碑。
         finish_attempt(
-            session, attempt, status=DocumentAttemptStatus.CANCELLED,
-            error_message="delete cleanup worker lost", now=now,
+            session,
+            attempt,
+            status=DocumentAttemptStatus.CANCELLED,
+            error_message="delete cleanup worker lost",
+            now=now,
         )
         if task.retry_count < task.max_retries:
             task.status = DocumentTaskStatus.QUEUED
@@ -231,8 +234,11 @@ def _recover_running_without_lease(
 
     # 删除中资料的普通阶段失联：取消并激活 delete_cleanup。
     finish_attempt(
-        session, attempt, status=DocumentAttemptStatus.CANCELLED,
-        error_message="worker lost without lease", now=now,
+        session,
+        attempt,
+        status=DocumentAttemptStatus.CANCELLED,
+        error_message="worker lost without lease",
+        now=now,
     )
     task.status = DocumentTaskStatus.CANCELLED
     task.finished_at = now
@@ -320,8 +326,11 @@ def _recover_expired_lease(
         # 删除接管：取消 attempt/task、释放名额并激活 delete_cleanup。
         if attempt is not None:
             finish_attempt(
-                session, attempt, status=DocumentAttemptStatus.CANCELLED,
-                error_message="worker lost while deleting", now=now,
+                session,
+                attempt,
+                status=DocumentAttemptStatus.CANCELLED,
+                error_message="worker lost while deleting",
+                now=now,
             )
         if task is not None and task.status == DocumentTaskStatus.RUNNING:
             task.status = DocumentTaskStatus.CANCELLED
@@ -338,8 +347,11 @@ def _recover_expired_lease(
     # 正常资料失联恢复：关闭 attempt、释放名额，按预算恢复或失败。
     if attempt is not None:
         finish_attempt(
-            session, attempt, status=DocumentAttemptStatus.CANCELLED,
-            error_message="worker lease expired", now=now,
+            session,
+            attempt,
+            status=DocumentAttemptStatus.CANCELLED,
+            error_message="worker lease expired",
+            now=now,
         )
     lease.released_at = now
     lease.release_reason = "recovery"

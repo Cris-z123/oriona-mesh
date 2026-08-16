@@ -142,8 +142,11 @@ def _fail_cleanup(
     """清理失败：按重试预算恢复；预算耗尽转为 20015 删除未完成墓碑。"""
     message = ASYNC_ERROR_MESSAGES[20015]
     finish_attempt(
-        session, attempt, status=DocumentAttemptStatus.FAILED,
-        error_message=message, now=now,
+        session,
+        attempt,
+        status=DocumentAttemptStatus.FAILED,
+        error_message=message,
+        now=now,
     )
     if task.retry_count < task.max_retries:
         DocumentTaskRepository(session).requeue(task, now=now)
@@ -190,4 +193,3 @@ def register_tasks(celery_app) -> None:
             )
         finally:
             session.close()
-

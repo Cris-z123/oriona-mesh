@@ -186,22 +186,28 @@ class TestEmbedWorkerTerminalState:
 
         def _task(ttype):
             return (
-                db_session.query(DocumentTask)
-                .filter_by(document_id=doc_id, task_type=ttype)
-                .one()
+                db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type=ttype).one()
             )
 
         process_parse(
             db_session,
             task_id=_task(DocumentTaskType.PARSE).id,
-            user_id=user.id, knowledge_base_id=kb.id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user.id,
+            knowledge_base_id=kb.id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
         process_chunk(
             db_session,
             task_id=_task(DocumentTaskType.CHUNK).id,
-            user_id=user.id, knowledge_base_id=kb.id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user.id,
+            knowledge_base_id=kb.id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
 
         class FailingEmbeddings:
@@ -211,7 +217,10 @@ class TestEmbedWorkerTerminalState:
         process_embed(
             db_session,
             task_id=_task(DocumentTaskType.EMBED).id,
-            user_id=user.id, knowledge_base_id=kb.id, document_id=doc_id, document_version=1,
+            user_id=user.id,
+            knowledge_base_id=kb.id,
+            document_id=doc_id,
+            document_version=1,
             embeddings=FailingEmbeddings(),  # type: ignore[arg-type]
             dispatch=dispatch,
         )

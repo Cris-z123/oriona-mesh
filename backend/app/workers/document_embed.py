@@ -99,9 +99,7 @@ def process_embed(
                 converge_cancelled(session, attempt_id=attempt.id)
                 return
             session.commit()
-            vectors = embeddings.embed_texts(
-                [draft.content for draft in batch], user_id=user_id
-            )
+            vectors = embeddings.embed_texts([draft.content for draft in batch], user_id=user_id)
             # 跨批次累积，全部取得后在同一 fencing 事务一次性直写正式片段：
             # 逐批调用 replace_for_version 会整版本先删后写，覆盖先前批次。
             chunks.extend(
@@ -209,4 +207,3 @@ def register_tasks(celery_app) -> None:
             )
         finally:
             session.close()
-

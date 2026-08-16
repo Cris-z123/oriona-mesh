@@ -73,8 +73,7 @@ def _files(count: int = 1) -> list:
     from fastapi import UploadFile
 
     return [
-        UploadFile(file=io.BytesIO(b"%PDF-1.4 content"), filename=f"f{i}.pdf")
-        for i in range(count)
+        UploadFile(file=io.BytesIO(b"%PDF-1.4 content"), filename=f"f{i}.pdf") for i in range(count)
     ]
 
 
@@ -125,6 +124,7 @@ class TestIdempotency:
 
         validated = validate_upload_batch(_files())
         request = service._persist_batch(user_id, kb_id, validated, uuid.uuid4(), _KEY)
+        assert request is not None
         assert request.status.value == "coordinating"
         with pytest.raises(ApiError) as exc:
             service.upload(user_id, kb_id, _files(), idempotency_key=_KEY)
@@ -133,6 +133,7 @@ class TestIdempotency:
         assert db_session.query(Document).count() == 1
         assert db_session.query(DocumentTask).count() == 1
         fresh = db_session.get(DocumentUploadRequest, request.id)
+        assert fresh is not None
         assert fresh.status.value == "coordinating"
         assert len(service._dispatch_calls) == 0  # type: ignore[attr-defined]
 
@@ -144,12 +145,14 @@ class TestIdempotency:
 
         validated = validate_upload_batch(_files())
         request = service._persist_batch(user_id, kb_id, validated, uuid.uuid4(), _KEY)
+        assert request is not None
         request.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         db_session.commit()
         outcome = service.upload(user_id, kb_id, _files(), idempotency_key=_KEY)
         # 超时重放锁定批次并调用同一协调函数接管：整批 queued。
         assert [item["status"] for item in outcome.items] == ["queued"]
         fresh = db_session.get(DocumentUploadRequest, request.id)
+        assert fresh is not None
         assert fresh.status.value == "accepted"
         doc = db_session.query(Document).one()
         assert doc.status == DocumentStatus.QUEUED
@@ -165,6 +168,7 @@ class TestIdempotency:
 
         validated = validate_upload_batch(_files())
         request = service._persist_batch(user_id, kb_id, validated, uuid.uuid4(), _KEY)
+        assert request is not None
         request.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         # 批次资料必须超过协调窗口（扫描器按 created_at 复查超时）。
         from app.models.document import Document
@@ -180,7 +184,9 @@ class TestIdempotency:
         assert taken == [request.upload_batch_id]
         doc = db_session.query(Document).one()
         assert doc.status == DocumentStatus.QUEUED
-        assert db_session.get(DocumentUploadRequest, request.id).status.value == "accepted"
+        persisted = db_session.get(DocumentUploadRequest, request.id)
+        assert persisted is not None
+        assert persisted.status.value == "accepted"
         assert len(calls) == 1
 
     def test_compensated_batch_snapshot_failed_20011_and_replay(

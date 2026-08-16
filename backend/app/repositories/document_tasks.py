@@ -22,9 +22,7 @@ def stage_idempotency_key(task_type: DocumentTaskType, document_id: uuid.UUID, v
     return f"{task_type.value}:{document_id}:v{version}"
 
 
-def delete_cleanup_idempotency_key(
-    document_id: uuid.UUID, version: int, delete_cycle: int
-) -> str:
+def delete_cleanup_idempotency_key(document_id: uuid.UUID, version: int, delete_cycle: int) -> str:
     return f"delete_cleanup:{document_id}:v{version}:d{delete_cycle}"
 
 
@@ -36,9 +34,7 @@ class DocumentTaskRepository:
 
     def get_for_user(self, task_id: uuid.UUID, user_id: uuid.UUID) -> DocumentTask:
         task = self.session.scalar(
-            select(DocumentTask).where(
-                DocumentTask.id == task_id, DocumentTask.user_id == user_id
-            )
+            select(DocumentTask).where(DocumentTask.id == task_id, DocumentTask.user_id == user_id)
         )
         if task is None:
             raise ApiError(20007, RESOURCE_NOT_FOUND_MSG, 404)
@@ -65,9 +61,7 @@ class DocumentTaskRepository:
         return list(rows), int(total)
 
     def find_by_idempotency_key(self, key: str) -> DocumentTask | None:
-        return self.session.scalar(
-            select(DocumentTask).where(DocumentTask.idempotency_key == key)
-        )
+        return self.session.scalar(select(DocumentTask).where(DocumentTask.idempotency_key == key))
 
     def create_initial_parse(
         self,

@@ -190,9 +190,7 @@ class DocumentService:
                 request_fingerprint=request_fingerprint(validated),
                 upload_batch_id=batch_id,
                 expires_at=now
-                + timedelta(
-                    seconds=self.settings.storage.upload_idempotency_ttl_seconds
-                ),
+                + timedelta(seconds=self.settings.storage.upload_idempotency_ttl_seconds),
             )
         try:
             self.session.commit()
@@ -312,9 +310,7 @@ class DocumentService:
         if request is not None:
             failed_items = [
                 document_upload_item_dto(
-                    self.session.scalar(
-                        select(Document).where(Document.id == doc_id)
-                    )
+                    self.session.scalar(select(Document).where(Document.id == doc_id))
                 )
                 for doc_id in doc_ids
             ]

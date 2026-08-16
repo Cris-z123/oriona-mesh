@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
+from app.core.settings import get_settings
 from app.infrastructure.storage.local import LocalStorage
 from app.models.chunk import Chunk, DocumentChunkDraft, DocumentParseResult
 from app.models.document import Document
@@ -32,6 +33,7 @@ from app.repositories.fencing import FencingError
 from app.repositories.parse_results import ParseResultRepository
 from app.services.document_service import DocumentService
 from app.services.file_storage import FileStorage
+from app.services.llm.embeddings import EmbeddingService
 from app.workers.base import begin_attempt
 from app.workers.document_chunk import process_chunk
 from app.workers.document_embed import process_embed
@@ -85,12 +87,14 @@ def _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, text: s
 
 
 def _task(db_session, doc_id, task_type) -> DocumentTask:
-    return db_session.query(DocumentTask).filter_by(
-        document_id=doc_id, task_type=task_type
-    ).one()
+    return db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type=task_type).one()
 
 
-class FakeEmbeddings:
+class FakeEmbeddings(EmbeddingService):
+    def __init__(self) -> None:
+        # 测试替身不初始化模型网关。
+        self.settings = get_settings()
+
     def embed_texts(self, texts: list[str], **kwargs) -> list[list[float]]:
         return [[0.1] + [0.0] * 1535 for _ in texts]
 
@@ -131,6 +135,7 @@ class TestStageOrchestration:
         assert chunk_task.status == DocumentTaskStatus.QUEUED
         assert chunk_task.retry_count == 0
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         assert doc.current_task_type == DocumentTaskType.CHUNK
         assert doc.retry_count == 0
         lease = db_session.query(DocumentProcessingLease).one()
@@ -223,8 +228,13 @@ class TestWriteFencing:
         doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "fence")
         task = _task(db_session, doc_id, DocumentTaskType.PARSE)
         started_task, attempt = begin_attempt(
-            db_session, task_id=task.id, user_id=user_id, knowledge_base_id=kb_id,
-            document_id=doc_id, document_version=1, worker_name="test",
+            db_session,
+            task_id=task.id,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            worker_name="test",
         )
         db_session.commit()
         repo = ParseResultRepository(db_session)
@@ -256,10 +266,16 @@ class TestWriteFencing:
         doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "fence-del")
         task = _task(db_session, doc_id, DocumentTaskType.PARSE)
         started_task, attempt = begin_attempt(
-            db_session, task_id=task.id, user_id=user_id, knowledge_base_id=kb_id,
-            document_id=doc_id, document_version=1, worker_name="test",
+            db_session,
+            task_id=task.id,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            worker_name="test",
         )
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         doc.status = DocumentStatus.DELETING
         db_session.commit()
         with pytest.raises(FencingError):
@@ -290,8 +306,13 @@ class TestWriteFencing:
         doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "fence-v")
         task = _task(db_session, doc_id, DocumentTaskType.PARSE)
         started_task, attempt = begin_attempt(
-            db_session, task_id=task.id, user_id=user_id, knowledge_base_id=kb_id,
-            document_id=doc_id, document_version=1, worker_name="test",
+            db_session,
+            task_id=task.id,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            worker_name="test",
         )
         db_session.commit()
         with pytest.raises(FencingError):
@@ -322,8 +343,13 @@ class TestWriteFencing:
         doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "fence-a")
         task = _task(db_session, doc_id, DocumentTaskType.PARSE)
         started_task, attempt = begin_attempt(
-            db_session, task_id=task.id, user_id=user_id, knowledge_base_id=kb_id,
-            document_id=doc_id, document_version=1, worker_name="test",
+            db_session,
+            task_id=task.id,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            worker_name="test",
         )
         attempt.status = DocumentAttemptStatus.SUCCEEDED
         attempt.finished_at = datetime.now(UTC)
@@ -356,8 +382,13 @@ class TestWriteFencing:
         doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "fence-c")
         task = _task(db_session, doc_id, DocumentTaskType.PARSE)
         started_task, attempt = begin_attempt(
-            db_session, task_id=task.id, user_id=user_id, knowledge_base_id=kb_id,
-            document_id=doc_id, document_version=1, worker_name="test",
+            db_session,
+            task_id=task.id,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            worker_name="test",
         )
         db_session.commit()
         draft = DocumentChunkDraft(
@@ -379,7 +410,9 @@ class TestWriteFencing:
         db_session.commit()
         assert db_session.query(DocumentChunkDraft).count() == 1
         # 资料 deleting 后草稿写入被拒绝。
-        db_session.get(Document, doc_id).status = DocumentStatus.DELETING
+        hidden = db_session.get(Document, doc_id)
+        assert hidden is not None
+        hidden.status = DocumentStatus.DELETING
         db_session.commit()
         with pytest.raises(FencingError):
             ChunkDraftRepository(db_session).replace_for_version(
@@ -409,21 +442,33 @@ class TestEmbedAndFinalize:
         process_parse(
             db_session,
             task_id=_task(db_session, doc_id, DocumentTaskType.PARSE).id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
         process_chunk(
             db_session,
             task_id=_task(db_session, doc_id, DocumentTaskType.CHUNK).id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
         embed_task = _task(db_session, doc_id, DocumentTaskType.EMBED)
         process_embed(
             db_session,
             task_id=embed_task.id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            embeddings=FakeEmbeddings(), dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            embeddings=FakeEmbeddings(),
+            dispatch=dispatch,
         )
         # embed 直写正式 chunks（幂等逻辑键），但 finalize 前不可检索。
         chunks = db_session.query(Chunk).all()
@@ -436,10 +481,14 @@ class TestEmbedAndFinalize:
         process_finalize(
             db_session,
             task_id=finalize_task.id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
             dispatch=dispatch,
         )
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         assert doc.status == DocumentStatus.COMPLETED
         assert doc.chunk_count == len(chunks)
         assert doc.current_task_type is None
@@ -462,21 +511,33 @@ class TestEmbedAndFinalize:
         process_parse(
             db_session,
             task_id=_task(db_session, doc_id, DocumentTaskType.PARSE).id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
         process_chunk(
             db_session,
             task_id=_task(db_session, doc_id, DocumentTaskType.CHUNK).id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
         embed_task = _task(db_session, doc_id, DocumentTaskType.EMBED)
         process_embed(
             db_session,
             task_id=embed_task.id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            embeddings=FakeEmbeddings(), dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            embeddings=FakeEmbeddings(),
+            dispatch=dispatch,
         )
         drafts = db_session.query(DocumentChunkDraft).count()
         chunks = db_session.query(Chunk).count()
@@ -485,10 +546,14 @@ class TestEmbedAndFinalize:
         process_finalize(
             db_session,
             task_id=_task(db_session, doc_id, DocumentTaskType.FINALIZE).id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
             dispatch=dispatch,
         )
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         assert doc.status == DocumentStatus.COMPLETED
         assert doc.chunk_count == drafts
 
@@ -508,21 +573,33 @@ class TestEmbedAndFinalize:
         process_parse(
             db_session,
             task_id=_task(db_session, doc_id, DocumentTaskType.PARSE).id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
         process_chunk(
             db_session,
             task_id=_task(db_session, doc_id, DocumentTaskType.CHUNK).id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            file_storage=storage, dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
         )
         embed_task = _task(db_session, doc_id, DocumentTaskType.EMBED)
         process_embed(
             db_session,
             task_id=embed_task.id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
-            embeddings=FakeEmbeddings(), dispatch=dispatch,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            embeddings=FakeEmbeddings(),
+            dispatch=dispatch,
         )
         # 模拟发布前数据缺失：正式片段数量与任务结果不一致。
         db_session.query(Chunk).delete()
@@ -531,10 +608,14 @@ class TestEmbedAndFinalize:
         process_finalize(
             db_session,
             task_id=finalize_task.id,
-            user_id=user_id, knowledge_base_id=kb_id, document_id=doc_id, document_version=1,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
             dispatch=dispatch,
         )
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         assert doc.status == DocumentStatus.FAILED
         assert doc.error_code == 20013
         assert doc.error_message == _FINALIZE_FAILED_MSG
