@@ -11,7 +11,6 @@
 from enum import StrEnum
 
 from app.api.v1.schemas.common import DEFAULT_ERROR_MSG
-from app.models.constants import DELETE_CLEANUP_ERROR_CODE
 from app.models.enums import (
     DocumentStatus,
     DocumentTaskType,
@@ -47,7 +46,7 @@ def _file_type_value(file_type: FileType) -> str:
 
 def document_dto(doc) -> dict:
     """Document 响应模式；allowed_actions 由服务端按当前状态计算。"""
-    if _is_delete_cleanup_failed(doc):
+    if doc.is_delete_cleanup_failed:
         allowed_actions = ["retry_delete"]
     else:
         allowed_actions = ["delete"]
@@ -126,14 +125,6 @@ def document_task_dto(task, attempts: list) -> dict:
         "updated_at": _iso(task.updated_at),
         "attempts": [document_task_attempt_dto(a) for a in attempts],
     }
-
-
-def _is_delete_cleanup_failed(doc) -> bool:
-    return (
-        doc.status == DocumentStatus.FAILED
-        and doc.current_task_type == DocumentTaskType.DELETE_CLEANUP
-        and doc.error_code == DELETE_CLEANUP_ERROR_CODE
-    )
 
 
 def _error_message(doc) -> str | None:

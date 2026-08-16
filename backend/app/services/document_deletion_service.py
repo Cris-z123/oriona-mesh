@@ -116,16 +116,34 @@ class DocumentDeletionService:
         if doc.knowledge_base_id != knowledge_base_id:
             raise ApiError(20007, RESOURCE_NOT_FOUND_MSG, 404)
         now = datetime.now(UTC)
-
         if doc.status == DocumentStatus.DELETING:
             return  # 幂等成功：不递增轮次、不创建任务
-        if not self.documents.is_delete_cleanup_failed(doc):
+        cleanup = self.stage_document_delete(doc, user_id, now)
+        self.session.commit()
+        if cleanup is not None:
+            self.dispatch_delete_cleanup(cleanup.id)
+
+    def stage_document_delete(
+        self,
+        doc: Document,
+        user_id: uuid.UUID,
+        now: datetime,
+    ) -> DocumentTask | None:
+        """单资料删除编排（不提交；知识库删除编排与 DELETE 共用）。
+
+        首次删除置 ``deleting``、递增 ``delete_cycle``、取消未开始任务并激活
+        ``delete_cleanup``；命中 ``deleting`` 幂等返回 None；``failed/delete_cleanup/
+        20015`` 重试递增轮次并新建任务，旧任务/attempt/retry_count 不可修改。
+
+        返回需要投递的 queued 清理任务；返回 None 表示幂等跳过或等待扫描器接管
+        （运行 attempt 的等待上限为当时 lease.expires_at，心跳不得续租）。
+        """
+        if doc.status == DocumentStatus.DELETING:
+            return None  # 幂等成功：不递增轮次、不创建任务
+        if not doc.is_delete_cleanup_failed:
             # 首次删除：置 deleting 并递增删除轮次。
             doc.status = DocumentStatus.DELETING
-            doc.delete_cycle += 1
-        else:
-            # 从 failed/delete_cleanup/20015 重试：递增轮次并新建清理任务。
-            doc.delete_cycle += 1
+        doc.delete_cycle += 1  # 首次删除及 20015 重试均递增轮次
         doc.current_task_type = DocumentTaskType.DELETE_CLEANUP
         doc.retry_count = 0
         doc.error_code = None
@@ -149,10 +167,7 @@ class DocumentDeletionService:
             # 无活动 attempt：立即释放 lease 并激活清理。
             if lease is not None:
                 self.leases.release(lease.id, reason="deleted", now=now)
-            cleanup = queue_delete_cleanup(self.session, doc=doc, now=now)
-            self.session.commit()
-            self._dispatch_delete_cleanup(cleanup.id)
-            return
+            return queue_delete_cleanup(self.session, doc=doc, now=now)
         if lease is None:
             # running attempt 无活动 lease：视为已失联，立即接管。
             finish_attempt(
@@ -166,13 +181,10 @@ class DocumentDeletionService:
             if attempt_task is not None and attempt_task.status == DocumentTaskStatus.RUNNING:
                 attempt_task.status = DocumentTaskStatus.CANCELLED
                 attempt_task.finished_at = now
-            cleanup = queue_delete_cleanup(self.session, doc=doc, now=now)
-            self.session.commit()
-            self._dispatch_delete_cleanup(cleanup.id)
-            return
+            return queue_delete_cleanup(self.session, doc=doc, now=now)
         # 有活动 attempt 且有租约：冻结等待上限（保留 lease；心跳因 deleting 不再续租）。
-        cleanup = activate_delete_cleanup(self.session, doc=doc, now=now)
-        self.session.commit()
+        activate_delete_cleanup(self.session, doc=doc, now=now)
+        return None
 
     def _open_attempt_for_document(
         self, document_id: uuid.UUID, user_id: uuid.UUID
@@ -188,7 +200,7 @@ class DocumentDeletionService:
             .with_for_update()
         )
 
-    def _dispatch_delete_cleanup(self, task_id: uuid.UUID) -> None:
+    def dispatch_delete_cleanup(self, task_id: uuid.UUID) -> None:
         try:
             self.dispatch("orionamesh.document_delete_cleanup", (task_id,))
         except Exception as exc:  # noqa: BLE001 - 投递失败由恢复扫描器重投

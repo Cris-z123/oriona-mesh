@@ -13,6 +13,7 @@ skip，不静默失败。
 
 import os
 import tempfile
+import uuid
 from collections.abc import Generator
 from pathlib import Path
 
@@ -55,6 +56,8 @@ from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 # 注册全部表到 Base.metadata（create_all/drop_all 使用）。
 import app.models  # noqa: F401, E402
 from app.db.base import Base  # noqa: E402
+from app.infrastructure.storage.local import LocalStorage  # noqa: E402
+from app.services.file_storage import FileStorage  # noqa: E402
 
 
 @pytest.fixture
@@ -164,6 +167,38 @@ def _truncate_all(engine) -> None:
         if tables:
             conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
             conn.commit()
+
+
+@pytest.fixture
+def storage(tmp_path) -> FileStorage:
+    """每测试独立持久卷（临时目录）；集成测试共用，避免各文件重复定义。"""
+    return FileStorage(LocalStorage(tmp_path / "store"))
+
+
+@pytest.fixture
+def dispatch_calls():
+    """记录投递调用的假 dispatch：(name, args)。"""
+    calls: list[tuple[str, tuple]] = []
+
+    def fake(name: str, args: tuple) -> None:
+        calls.append((name, args))
+
+    return fake, calls
+
+
+@pytest.fixture
+def user_and_kb(db_session: Session) -> tuple[uuid.UUID, uuid.UUID]:
+    """直接创建用户与知识库（跳过 API），供服务层集成测试使用。"""
+    from app.models.knowledge_base import KnowledgeBase
+    from app.models.user import User
+
+    user = User(email="shared-owner@example.com", password_hash="x" * 60)
+    db_session.add(user)
+    db_session.flush()
+    kb = KnowledgeBase(user_id=user.id, name="kb")
+    db_session.add(kb)
+    db_session.commit()
+    return user.id, kb.id
 
 
 @pytest.fixture(scope="module")

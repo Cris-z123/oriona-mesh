@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.middleware.errors import ApiError
 from app.api.v1.schemas.common import RESOURCE_NOT_FOUND_MSG
 from app.models.document import Document
-from app.models.enums import DocumentStatus, DocumentTaskType
+from app.models.enums import DocumentStatus
 
 # 内部隐藏状态：普通读取一律排除。
 _HIDDEN_STATUSES = (DocumentStatus.DELETING, DocumentStatus.DELETED)
@@ -97,11 +97,3 @@ class DocumentRepository:
         if doc is None or doc.status == DocumentStatus.DELETED:
             raise ApiError(20007, RESOURCE_NOT_FOUND_MSG, 404)
         return doc
-
-    def is_delete_cleanup_failed(self, doc: Document) -> bool:
-        """资料是否为 failed/delete_cleanup/20015 删除未完成墓碑。"""
-        return (
-            doc.status == DocumentStatus.FAILED
-            and doc.current_task_type == DocumentTaskType.DELETE_CLEANUP
-            and doc.error_code == 20015
-        )

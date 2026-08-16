@@ -25,7 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.models.constants import ASYNC_ERROR_CODES
+from app.models.constants import ASYNC_ERROR_CODES, DELETE_CLEANUP_ERROR_CODE
 from app.models.enums import DocumentStatus, DocumentTaskType, FileType, enum_values
 
 _MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
@@ -109,3 +109,16 @@ class Document(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+    @property
+    def is_delete_cleanup_failed(self) -> bool:
+        """资料是否为 ``failed/delete_cleanup/20015`` 删除未完成墓碑。
+
+        单一事实来源：资料删除编排、DTO 计算与维护扫描器共用同一判定，
+        避免多处硬编码 ``20015`` 漂移（review 修复）。
+        """
+        return (
+            self.status == DocumentStatus.FAILED
+            and self.current_task_type == DocumentTaskType.DELETE_CLEANUP
+            and self.error_code == DELETE_CLEANUP_ERROR_CODE
+        )

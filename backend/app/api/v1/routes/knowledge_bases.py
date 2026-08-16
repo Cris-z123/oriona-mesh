@@ -1,7 +1,9 @@
-"""知识库路由（T022 / openapi.yaml knowledge-bases 段）。
+"""知识库路由（T022/T081 / openapi.yaml knowledge-bases 段）。
 
 - 列表/详情以所属用户为范围；跨用户统一 ``20002/404``，不泄露资源归属；
-- 空知识库同步删除；非空知识库的 deleting 编排由 T081 接入（当前返回 ``20008/409``）。
+- 删除（T081）：空知识库直接物理删除；非空知识库置 ``deleting`` 并编排全部
+  子资料的有界删除，提交后立即隐藏；``delete_failed/20015`` 最小墓碑仅返回
+  ``retry_delete``，再次 DELETE 才转回 ``deleting``。
 """
 
 import uuid
@@ -30,7 +32,9 @@ def list_knowledge_bases(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    items, total = KnowledgeBaseService(db).list(current_user.id, page=page, page_size=page_size)
+    items, total = KnowledgeBaseService(db).list_for_user(
+        current_user.id, page=page, page_size=page_size
+    )
     return success_response(
         {
             "items": [knowledge_base_dto(kb) for kb in items],
