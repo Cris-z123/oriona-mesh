@@ -9,13 +9,10 @@
   :class:`EmbeddingFailure`（领域降级：资料与任务失败）。
 """
 
-import uuid
-
-from app.api.middleware.trace import current_trace_id
 from app.core.settings import Settings, get_settings
 from app.infrastructure.model_gateway.service import ModelGatewayService
-from app.infrastructure.model_gateway.types import EmbeddingResult, GatewayError, ModelCall
-from app.infrastructure.rate_limit.keys import user_fingerprint
+from app.infrastructure.model_gateway.types import EmbeddingResult, GatewayError
+from app.services.llm.base import build_model_call
 
 # text-embedding-3-small 默认维度；变更维度必须迁移并重建向量（quickstart）。
 EMBEDDING_DIMENSION = 1536
@@ -50,17 +47,10 @@ class EmbeddingService:
         trace_id: str | None = None,
     ) -> list[list[float]]:
         """为每段文本生成 1536 维向量；任何失败收敛为 :class:`EmbeddingFailure`。"""
-        secret = self.settings.rate_limit.subject_hmac_key.get_secret_value()
-        digest = user_fingerprint(str(user_id), secret)
-        tid = trace_id or current_trace_id() or str(uuid.uuid4())
         vectors: list[list[float]] = []
         for text in texts:
-            call = ModelCall(
-                call_id=str(uuid.uuid4()),
-                trace_id=tid,
-                subject_digest=digest,
-                call_type="embedding",
-                content=text,
+            call = build_model_call(
+                "embedding", text, user_id=user_id, settings=self.settings, trace_id=trace_id
             )
             try:
                 result = self.gateway.call(call)

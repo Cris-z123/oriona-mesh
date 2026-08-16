@@ -1,4 +1,4 @@
-"""恢复/维护扫描器（T050 / data-model.md 上传恢复、处理并发、删除接管）。
+"""恢复/维护扫描器（T050/T074 / data-model.md 上传恢复、处理并发、删除接管）。
 
 - 上传接管：对超过 ``DOCUMENT_UPLOAD_PENDING_TIMEOUT_SECONDS`` 且仍 ``pending``
   的批次，锁定并复查后调用与上传相同的幂等协调函数；锁不可得时不并发协调；
@@ -7,6 +7,8 @@
   取消 attempt/task 并激活 ``delete_cleanup``；
 - 投递兜底：对超过重投阈值仍 ``queued`` 的任务幂等重投（Celery 投递丢失）；
 - 幂等清理：删除过期上传幂等记录；
+- streaming 消息收敛（T074）：对超过 ``MESSAGE_STREAMING_STALE_SECONDS`` 且仍
+  ``streaming`` 的 assistant 消息原子收敛为 ``failed/error``，不得覆盖已终态；
 - 全部以 PostgreSQL 记录为真相，Redis/Celery 不作为业务状态来源。
 """
 
@@ -20,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.schemas.documents import ASYNC_ERROR_MESSAGES
 from app.core.settings import Settings, get_settings
+from app.models.conversation import Message
 from app.models.document import Document
 from app.models.document_task import DocumentTask, DocumentTaskAttempt
 from app.models.enums import (
@@ -27,12 +30,15 @@ from app.models.enums import (
     DocumentStatus,
     DocumentTaskStatus,
     DocumentTaskType,
+    MessageRole,
+    MessageStatus,
 )
 from app.models.processing_lease import DocumentProcessingLease
 from app.models.upload_request import DocumentUploadRequest
 from app.services.document_deletion_service import queue_delete_cleanup
 from app.services.document_service import DocumentService
 from app.services.file_storage import FileStorage
+from app.services.message_terminal_state import MessageTerminalState
 from app.workers.base import dispatch_task as _default_dispatch
 from app.workers.base import finish_attempt
 
@@ -51,7 +57,7 @@ def run_maintenance_scan(
     dispatch: Callable[[str, tuple], None] | None = None,
     settings: Settings | None = None,
 ) -> None:
-    """周期维护扫描：上传接管 → 处理名额回收 → 无租约 running 接管 → queued 重投 → 幂等清理。"""
+    """周期维护扫描：上传接管 → 名额回收 → 无租约接管 → queued 重投 → 幂等清理 → streaming 收敛。"""
     settings = settings or get_settings()
     dispatch = dispatch or _default_dispatch
     now = datetime.now(UTC)
@@ -60,6 +66,11 @@ def run_maintenance_scan(
     scan_running_without_lease(session, dispatch=dispatch, now=now)
     redispatch_stuck_queued_tasks(session, dispatch=dispatch, now=now)
     cleanup_expired_upload_requests(session, now=now)
+    converge_stale_streaming_messages(
+        session,
+        now=now,
+        stale_seconds=settings.retrieval.message_streaming_stale_seconds,
+    )
 
 
 def scan_upload_batches(
@@ -418,6 +429,35 @@ def cleanup_expired_upload_requests(
     if removed:
         session.commit()
     return removed
+
+
+def converge_stale_streaming_messages(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    stale_seconds: int,
+) -> int:
+    """收敛超过失联上限仍为 ``streaming`` 的 assistant 消息（T074 / FR-018）。
+
+    API 进程崩溃或终态写入中断后，把 ``status=streaming AND created_at <
+    now() - MESSAGE_STREAMING_STALE_SECONDS`` 的消息原子收敛为 ``failed/error``；
+    终态收敛器只改写仍为 streaming 的消息，已终态消息（含用户消息）不受影响。
+    """
+    now = now or datetime.now(UTC)
+    cutoff = now - timedelta(seconds=stale_seconds)
+    messages = session.scalars(
+        select(Message).where(
+            Message.role == MessageRole.ASSISTANT,
+            Message.status == MessageStatus.STREAMING,
+            Message.created_at < cutoff,
+        )
+    ).all()
+    writer = MessageTerminalState(session)
+    converged = 0
+    for message in messages:
+        if writer.fail(message.id, message.user_id):
+            converged += 1
+    return converged
 
 
 def _dispatch_safe(
