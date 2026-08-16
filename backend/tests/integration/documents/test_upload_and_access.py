@@ -155,9 +155,8 @@ class TestBatchCoordination:
 
         service = DocumentService(db_session, file_storage=storage, dispatch=dispatch)
         validated = validate_upload_batch([_uf("a.pdf", b"%PDF")])
-        request = service._persist_batch(
-            user_id, kb_id, validated, uuid.uuid4(), "pending-key-1"
-        )
+        request = service._persist_batch(user_id, kb_id, validated, uuid.uuid4(), "pending-key-1")
+        assert request is not None
         doc = db_session.query(Document).one()
         task = db_session.query(DocumentTask).one()
         assert doc.status == DocumentStatus.PENDING
@@ -280,9 +279,7 @@ class TestAccessBoundaries:
         tokens_b = _register(client, "acc-b@example.com")
         headers_b = _headers(tokens_b)
         # 知识库不在用户 B 范围内：先按契约映射 20002/404（FR-020）。
-        resp = client.get(
-            f"/v1/knowledge-bases/{kb_a}/documents/{doc_a}", headers=headers_b
-        )
+        resp = client.get(f"/v1/knowledge-bases/{kb_a}/documents/{doc_a}", headers=headers_b)
         assert resp.status_code == 404
         body = resp.json()
         assert body["code"] == 20002
@@ -310,14 +307,13 @@ class TestAccessBoundaries:
     ) -> None:
         tokens_a, user_a, kb_a, doc_a = _seeded_document(client, db_session, storage, "acc-f")
         doc = db_session.get(Document, doc_a)
+        assert doc is not None
         doc.status = DocumentStatus.FAILED
         doc.error_code = 20001
         doc.error_message = _PARSE_FAILED_MSG
         db_session.commit()
         headers = _headers(tokens_a)
-        resp = client.get(
-            f"/v1/knowledge-bases/{kb_a}/documents/{doc_a}", headers=headers
-        )
+        resp = client.get(f"/v1/knowledge-bases/{kb_a}/documents/{doc_a}", headers=headers)
         # 异步失败不伪装成上传阶段的 HTTP 400：详情仍为 200 信封。
         assert resp.status_code == 200
         body = resp.json()
@@ -333,12 +329,11 @@ class TestAccessBoundaries:
     ) -> None:
         tokens_a, user_a, kb_a, doc_a = _seeded_document(client, db_session, storage, "acc-h")
         # 再上传一份并直接置为 deleting。
-        service = DocumentService(
-            db_session, file_storage=storage, dispatch=lambda *a, **k: None
-        )
+        service = DocumentService(db_session, file_storage=storage, dispatch=lambda *a, **k: None)
         outcome = service.upload(user_a, kb_a, [_uf("hidden.pdf", b"%PDF")])
         hidden_id = outcome.items[0]["id"]
         hidden = db_session.get(Document, uuid.UUID(hidden_id))
+        assert hidden is not None
         hidden.status = DocumentStatus.DELETING
         db_session.commit()
 
@@ -349,15 +344,11 @@ class TestAccessBoundaries:
         assert str(doc_a) in visible_ids
         assert hidden_id not in visible_ids
         # 内部隐藏状态不得作为公开过滤条件。
-        resp = client.get(
-            f"/v1/knowledge-bases/{kb_a}/documents?status=deleting", headers=headers
-        )
+        resp = client.get(f"/v1/knowledge-bases/{kb_a}/documents?status=deleting", headers=headers)
         assert resp.status_code == 400
         assert resp.json()["code"] == 10003
         # 公开状态过滤可用。
-        resp = client.get(
-            f"/v1/knowledge-bases/{kb_a}/documents?status=queued", headers=headers
-        )
+        resp = client.get(f"/v1/knowledge-bases/{kb_a}/documents?status=queued", headers=headers)
         assert resp.status_code == 200
         assert all(item["status"] == "queued" for item in resp.json()["data"]["items"])
 

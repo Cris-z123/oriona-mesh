@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.settings import get_settings
 from app.infrastructure.storage.local import LocalStorage
 from app.models.document import Document
 from app.models.document_task import DocumentTask, DocumentTaskAttempt
@@ -24,6 +25,7 @@ from app.models.enums import (
 from app.models.processing_lease import DocumentProcessingLease
 from app.services.document_service import DocumentService
 from app.services.file_storage import FileStorage
+from app.services.llm.embeddings import EmbeddingService
 from app.workers.document_chunk import process_chunk
 from app.workers.document_embed import process_embed
 from app.workers.document_finalize import process_finalize
@@ -76,8 +78,12 @@ def _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, text: s
     return uuid.UUID(outcome.items[0]["id"])
 
 
-class FakeEmbeddings:
+class FakeEmbeddings(EmbeddingService):
     """返回与文本数相同、维度 1536 的确定性向量。"""
+
+    def __init__(self) -> None:
+        # 测试替身不初始化模型网关。
+        self.settings = get_settings()
 
     def embed_texts(self, texts: list[str], **kwargs) -> list[list[float]]:
         return [[0.1 + float(i) / 1000.0] + [0.0] * 1535 for i in range(len(texts))]
@@ -118,7 +124,7 @@ class TestProcessingSlots:
                 )
                 s.commit()
                 fresh = s.get(Document, doc_id)
-                if fresh.status == DocumentStatus.PROCESSING:
+                if fresh is not None and fresh.status == DocumentStatus.PROCESSING:
                     processing.append(doc_id)
             finally:
                 s.close()
@@ -127,6 +133,7 @@ class TestProcessingSlots:
         assert len(processing) == MAX_PER_USER
         wait_doc = next(d for d in doc_ids if d not in processing)
         waiting = db_session.get(Document, wait_doc)
+        assert waiting is not None
         assert waiting.status == DocumentStatus.QUEUED
         open_leases = (
             db_session.query(DocumentProcessingLease)
@@ -163,9 +170,9 @@ class TestProcessingSlots:
             file_storage=storage,
             dispatch=dispatch,
         )
-        chunk_task = db_session.query(DocumentTask).filter_by(
-            document_id=doc_id, task_type="chunk"
-        ).one()
+        chunk_task = (
+            db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type="chunk").one()
+        )
         process_chunk(
             db_session,
             task_id=chunk_task.id,
@@ -176,9 +183,9 @@ class TestProcessingSlots:
             file_storage=storage,
             dispatch=dispatch,
         )
-        embed_task = db_session.query(DocumentTask).filter_by(
-            document_id=doc_id, task_type="embed"
-        ).one()
+        embed_task = (
+            db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type="embed").one()
+        )
         process_embed(
             db_session,
             task_id=embed_task.id,
@@ -189,9 +196,9 @@ class TestProcessingSlots:
             embeddings=FakeEmbeddings(),
             dispatch=dispatch,
         )
-        finalize_task = db_session.query(DocumentTask).filter_by(
-            document_id=doc_id, task_type="finalize"
-        ).one()
+        finalize_task = (
+            db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type="finalize").one()
+        )
         process_finalize(
             db_session,
             task_id=finalize_task.id,
@@ -208,6 +215,7 @@ class TestProcessingSlots:
         assert leases[0].released_at is not None
         assert leases[0].release_reason == "completed"
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         assert doc.status == DocumentStatus.COMPLETED
         assert doc.current_task_type is None
         assert doc.chunk_count >= 1
@@ -228,12 +236,11 @@ class TestProcessingSlots:
     ) -> None:
         dispatch, calls = dispatch_calls
         user_id, kb_id = user_and_kb
-        doc_id = _seed_queued_document(
-            db_session, storage, dispatch, user_id, kb_id, "lost worker"
-        )
+        doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "lost worker")
         calls.clear()  # 种子上传的投递不计入恢复断言
         # 直接构造 running 状态：任务 running、attempt running、租约过期。
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         task = db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type="parse").one()
         doc.status = DocumentStatus.PROCESSING
         task.status = DocumentTaskStatus.RUNNING
@@ -262,9 +269,7 @@ class TestProcessingSlots:
         db_session.add(attempt)
         db_session.commit()
 
-        recovered = scan_expired_leases(
-            db_session, dispatch=dispatch, now=datetime.now(UTC)
-        )
+        recovered = scan_expired_leases(db_session, dispatch=dispatch, now=datetime.now(UTC))
         assert recovered == 1
         db_session.refresh(doc)
         db_session.refresh(task)
@@ -294,11 +299,10 @@ class TestProcessingSlots:
     ) -> None:
         dispatch, calls = dispatch_calls
         user_id, kb_id = user_and_kb
-        doc_id = _seed_queued_document(
-            db_session, storage, dispatch, user_id, kb_id, "exhausted"
-        )
+        doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "exhausted")
         calls.clear()  # 种子上传的投递不计入预算断言
         doc = db_session.get(Document, doc_id)
+        assert doc is not None
         task = db_session.query(DocumentTask).filter_by(document_id=doc_id, task_type="parse").one()
         doc.status = DocumentStatus.PROCESSING
         task.status = DocumentTaskStatus.RUNNING
@@ -328,9 +332,7 @@ class TestProcessingSlots:
         )
         db_session.commit()
 
-        recovered = scan_expired_leases(
-            db_session, dispatch=dispatch, now=datetime.now(UTC)
-        )
+        recovered = scan_expired_leases(db_session, dispatch=dispatch, now=datetime.now(UTC))
         assert recovered == 1
         db_session.refresh(doc)
         db_session.refresh(task)

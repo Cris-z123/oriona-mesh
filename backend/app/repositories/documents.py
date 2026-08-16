@@ -70,9 +70,7 @@ class DocumentRepository:
         ).all()
         return list(rows), int(total)
 
-    def lock_batch_for_coordination(
-        self, upload_batch_id: uuid.UUID
-    ) -> list[Document]:
+    def lock_batch_for_coordination(self, upload_batch_id: uuid.UUID) -> list[Document]:
         """锁定整批资料（FOR UPDATE SKIP LOCKED）；锁不可得时返回空列表。
 
         协调器在持有该短事务行锁期间完成同卷原子重命名；扫描器拿不到锁时

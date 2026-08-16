@@ -222,7 +222,7 @@ class TestSecurityLimits:
 
     def test_markdown_script_and_external_link_not_emitted(self) -> None:
         parser = get_parser(FileType.MD)
-        result = parser.parse(b'<script>alert(1)</script>\n\n[link](https://evil.example/x)')
+        result = parser.parse(b"<script>alert(1)</script>\n\n[link](https://evil.example/x)")
         # HTML 被禁用：脚本标签不作为可执行 HTML 输出。
         assert "<script" not in result.normalized_text
         assert "alert(1)" not in result.normalized_text

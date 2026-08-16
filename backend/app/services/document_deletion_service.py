@@ -138,9 +138,7 @@ class DocumentDeletionService:
                 DocumentTask.document_id == doc.id,
                 DocumentTask.user_id == user_id,
                 DocumentTask.task_type != DocumentTaskType.DELETE_CLEANUP,
-                DocumentTask.status.in_(
-                    (DocumentTaskStatus.PENDING, DocumentTaskStatus.QUEUED)
-                ),
+                DocumentTask.status.in_((DocumentTaskStatus.PENDING, DocumentTaskStatus.QUEUED)),
             )
             .values(status=DocumentTaskStatus.CANCELLED, finished_at=now)
         )
@@ -158,8 +156,11 @@ class DocumentDeletionService:
         if lease is None:
             # running attempt 无活动 lease：视为已失联，立即接管。
             finish_attempt(
-                self.session, running_attempt, status=DocumentAttemptStatus.CANCELLED,
-                error_message="worker lost without lease", now=now,
+                self.session,
+                running_attempt,
+                status=DocumentAttemptStatus.CANCELLED,
+                error_message="worker lost without lease",
+                now=now,
             )
             attempt_task = self.session.get(DocumentTask, running_attempt.task_id)
             if attempt_task is not None and attempt_task.status == DocumentTaskStatus.RUNNING:
