@@ -1,5 +1,11 @@
 # 内部模型出口数据契约
 
+> **A5 契约冻结（2026-08-16，T091）**：本契约与实现一致，契约门禁已通过
+> （`tests/contract/test_model_egress_contract.py` 68 passed、
+> `tests/integration/infrastructure/test_model_egress.py` 23 passed、
+> `tests/architecture/` 模型出口边界 8 passed）。四类调用全部经网关、脱敏失败零外发、
+> 凭证仅在发送边界注入、日志仅含白名单元数据均已自动化验证。实现变更必须先更新本文件。
+
 本契约约束后端内部 `model_gateway` 与业务服务、Celery worker 及供应商适配层之间的数据边界。
 它不是公开 HTTP API，但属于 A5 必须冻结并自动验证的内部接口。
 

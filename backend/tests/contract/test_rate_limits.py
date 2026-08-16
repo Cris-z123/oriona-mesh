@@ -32,6 +32,13 @@ _CID_UUID = "00000000-0000-4000-8000-000000000002"
 
 
 @pytest.fixture(autouse=True)
+def _ensure_schema(test_engine):
+    """保证 schema 存在：本文件只用 client（不触发 db_session），单独运行
+    （如 T086 门禁）时若未建表会得到 500/ProgrammingError。"""
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clean_rate_limit_keys(redis_client) -> Generator[None, None, None]:
     """每测试清空限流键，避免 IP/账号预算跨测试泄漏。"""
     yield

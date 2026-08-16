@@ -2,6 +2,25 @@
 
 > 文档职责：本文件是环境变量、默认值、依赖安装、部署与验证步骤的唯一运行手册；业务需求、数据不变量和 API 结构分别以 `spec.md`、`data-model.md` 和 `contracts/` 为准。
 
+## A5 契约冻结门禁记录（T091，2026-08-16）
+
+后端 A5 实现及契约冻结门禁已通过。验证结果（`backend/`，`uv run pytest` 全量）：
+
+| 门禁 | 测试文件 | 结果 |
+|---|---|---|
+| 启动就绪（迁移/扩展/持久卷/处理名额/检索阈值/streaming 失联上限） | `tests/integration/test_startup_readiness.py` | 26 passed / 1 skipped（win32 只读目录用例） |
+| 业务错误码与统一信封 | `tests/contract/test_business_error_codes.py`、`test_rate_limits.py` | 65 passed |
+| 后端全链路门禁（认证/租户/删除/流水线/检索/引用/SSE 终态/失联恢复） | `tests/integration/test_backend_gate.py` | 30 passed |
+| 架构依赖边界（9 文件） | `tests/architecture/` | 68 passed |
+| 模型出口集成（受控假供应商） | `tests/integration/infrastructure/test_model_egress.py` | 23 passed |
+| 模型出口契约 | `tests/contract/test_model_egress_contract.py` | 68 passed |
+| 全量回归（unit/contract/integration/architecture） | `backend/` 全部 | **713 passed / 1 skipped** |
+
+质量工具：Ruff format/check 全绿、Pyright 0 errors。契约已冻结于 `contracts/openapi.yaml` 与
+`contracts/model-egress.md`；限流错误语义（`10005/429` + `Retry-After`、`50001/503` fail-closed）
+与出口安全语义（脱敏失败零外发、日志白名单）均为自动化门禁。冻结后接口变更必须先更新契约文档
+再同步实现与任务。A6 工程化门禁（T092–T105）完成后才允许开始前端 UI。
+
 ## 前置条件
 
 - 可用的 PostgreSQL，已启用向量与相似文本匹配扩展。

@@ -69,7 +69,15 @@ class RerankerService:
         content = f"用户问题：{query}\n候选：\n" + "\n".join(
             f"[{i}] {c.content}" for i, c in enumerate(candidates)
         )
-        call = build_model_call("rerank", content, user_id=user_id, settings=self.settings)
+        # candidate_count 是调用内候选数量（非敏感参数），供应商适配层据此校验
+        # 评分完整性（model-egress.md Reranker 评分响应）。
+        call = build_model_call(
+            "rerank",
+            content,
+            user_id=user_id,
+            settings=self.settings,
+            options={"candidate_count": len(candidates)},
+        )
         try:
             result = self.gateway.call(call)
         except GatewayError:

@@ -368,6 +368,70 @@ class TestCallStream:
             self._stream(service, _call("generation"))
         assert exc.value.error_class == "timeout"
 
+    def test_stream_total_timeout_includes_first_token_wait(self) -> None:
+        # T084 后续契约核查（quickstart 生成总时长）：总时长从流式调用开始
+        # （首 token 等待前）计时并覆盖整个流。首块等待 2 秒、total=1 秒、
+        # first_token=5 秒时必须约 1 秒收敛（而非等满 first_token 5 秒再叠加
+        # total 1 秒），即首 token 等待不得把总时长扩展为 5+1 秒。
+        import time as _time
+
+        adapter = _FakeAdapter()
+
+        def slow_gen():
+            _time.sleep(2)
+            yield "late"
+
+        def chat_stream(call: SanitizedModelCall):
+            adapter._record("stream", call)
+            return slow_gen()
+
+        adapter.chat_stream = chat_stream  # type: ignore[method-assign]
+        settings = _settings(
+            generation_first_token_timeout_seconds=5,
+            generation_total_timeout_seconds=1,
+            generation_max_retries=0,
+        )
+        service = ModelGatewayService(settings, adapter=adapter)
+        started = _time.monotonic()
+        with pytest.raises(GatewayError) as exc:
+            self._stream(service, _call("generation"))
+        elapsed = _time.monotonic() - started
+        assert exc.value.error_class == "timeout"
+        # 收敛在 total=1 秒附近（宽松边界 3 秒），而不是等满 first_token=5 秒。
+        assert elapsed < 3.0, f"total timeout should fire at ~1s, took {elapsed:.1f}s"
+
+    def test_stream_total_timeout_covers_stream_after_first_token(self) -> None:
+        # 首块在总时长内到达后，流剩余部分仍受同一总时长截止约束：首块 0.6 秒、
+        # total=1 秒时，首块后剩余预算约 0.4 秒，停流应在 ~1 秒收敛（修复前会在
+        # 首块后重新计时，流可持续满 1 秒 → 总时长 1.6 秒，违反契约）。
+        import time as _time
+
+        adapter = _FakeAdapter()
+
+        def slow_then_stall():
+            _time.sleep(0.6)
+            yield "a"
+            _time.sleep(5)
+
+        def chat_stream(call: SanitizedModelCall):
+            adapter._record("stream", call)
+            return slow_then_stall()
+
+        adapter.chat_stream = chat_stream  # type: ignore[method-assign]
+        settings = _settings(
+            generation_first_token_timeout_seconds=5,
+            generation_total_timeout_seconds=1,
+            generation_max_retries=0,
+        )
+        service = ModelGatewayService(settings, adapter=adapter)
+        started = _time.monotonic()
+        with pytest.raises(GatewayError) as exc:
+            self._stream(service, _call("generation"))
+        elapsed = _time.monotonic() - started
+        assert exc.value.error_class == "timeout"
+        # 总时长 ~1 秒收敛；若流被重新计时会到 ~1.6 秒以上。
+        assert elapsed < 1.5, f"total timeout should cover whole stream, took {elapsed:.1f}s"
+
     def test_stream_mid_stream_adapter_error_classified(self) -> None:
         adapter = _FakeAdapter()
 

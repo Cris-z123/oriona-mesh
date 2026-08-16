@@ -35,7 +35,8 @@ class ModelCall:
     """业务调用方提交的最小调用上下文。
 
     content 为当前调用类型所需的最小内容；options 为与调用类型相关的非敏感参数，
-    不得包含供应商凭证或请求头。
+    不得包含供应商凭证或请求头。frozen 语义下 options 在构造时复制，调用方后续
+    修改自己的字典不影响本对象。
     """
 
     call_id: str
@@ -44,6 +45,11 @@ class ModelCall:
     call_type: CallType
     content: str
     options: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # 防御性浅拷贝：frozen 只阻止属性重赋值，不阻止外部可变字典内容被修改；
+        # 网关与适配器读取的 options 必须与调用方字典隔离（model-egress.md）。
+        object.__setattr__(self, "options", dict(self.options))
 
 
 @dataclass(frozen=True)
@@ -65,6 +71,11 @@ class SanitizedModelCall:
     # generation 专用：首 token 与总时长超时（网关执行超时与重试的唯一场所）。
     first_token_timeout_seconds: float | None = None
     total_timeout_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        # 与 ModelCall 相同的引用隔离：供应商适配层读取的 options 不得与任何
+        # 外部字典共享（frozen 语义的完整承诺）。
+        object.__setattr__(self, "options", dict(self.options))
 
 
 @dataclass(frozen=True)

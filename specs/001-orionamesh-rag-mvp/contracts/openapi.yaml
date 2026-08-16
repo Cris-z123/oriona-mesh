@@ -2,12 +2,21 @@ openapi: 3.1.0
 info:
   title: OrionaMesh MVP API
   version: 1.0.0
+  x-contract-freeze: >-
+    A5 契约冻结（2026-08-16，T091）：本契约与实现一致，契约门禁已通过
+    （backend 全套件 713 passed/1 skipped，Ruff/Pyright 全绿）。此后任何接口、
+    错误码、响应形状变更必须先更新本文件并同步 plan.md/tasks.md；前端 UI
+    仅可消费本契约。
   description: >-
     面向私有知识库与可信问答的版本化 REST/SSE 唯一公开接口契约。除 SSE 外，所有响应均返回统一 JSON
     信封。所有操作均受后端分级限流保护；x-rate-limit-policy 标识默认策略，实际阈值可由部署
     配置覆盖。超限统一返回 10005/429 和 Retry-After，且不产生业务副作用。认证来源 IP 默认
     使用直连对端；只有直连对端命中显式可信代理 CIDR 时才解析 X-Forwarded-For，非法链或无非可信地址时回退
     直连对端。
+    路由层 HTTPException（方法不允许 405 等）为框架级通用行为：保留 HTTP 状态码并以
+    10003/400 语义业务码（InvalidRequestErrorEnvelope）返回统一信封，不得用 50000 表达
+    客户端请求错误；错误 Content-Type 等请求体解析失败由 FastAPI 统一收敛为 400/10003，
+    不产生 415。
 servers:
   - url: /v1
 security:
