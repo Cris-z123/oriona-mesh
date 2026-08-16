@@ -135,7 +135,8 @@ def _ensure_test_database(parsed) -> None:
     )
     try:
         with admin.connect() as conn:
-            conn.execute(text("COMMIT"))  # 脱离事务上下文
+            # CREATE DATABASE 不能在事务块内执行：切 AUTOCOMMIT 使语句逐条提交。
+            conn = conn.execution_options(isolation_level="AUTOCOMMIT")
             exists = conn.execute(
                 text("SELECT 1 FROM pg_database WHERE datname = :name"),
                 {"name": parsed.database},

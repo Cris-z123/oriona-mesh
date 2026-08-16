@@ -151,3 +151,26 @@ class TestErrorEnvelope:
     def test_error_envelopes_keep_trace_id_in_response_header(self, api_client):
         resp = api_client.get("/demo/conflict")
         assert resp.headers["X-Trace-Id"] == resp.json()["trace_id"]
+
+    def test_http_exception_415_maps_10003(self):
+        # T084 冻结语义：非 404 的 Starlette HTTPException（415 不支持的媒体类型等）
+        # 保留 HTTP 状态码并以 10003 业务码返回统一信封，不得用 50000 表达客户端错误。
+        # FastAPI 路由层不会真实产生 415（错误 Content-Type 收敛为 400），故直接构造
+        # HTTPException 验证异常处理器映射一致。
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        app = FastAPI()
+        app.add_middleware(TraceMiddleware)
+        register_exception_handlers(app)
+
+        @app.get("/demo/unsupported")
+        def unsupported() -> None:
+            raise StarletteHTTPException(status_code=415)
+
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            resp = test_client.get("/demo/unsupported")
+        assert resp.status_code == 415
+        body = resp.json()
+        assert body["code"] == 10003
+        assert body["msg"] == "请求参数不合法，请检查后重试"
+        assert_valid_trace_id(body["trace_id"])

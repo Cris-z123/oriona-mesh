@@ -21,7 +21,6 @@ import structlog
 from starlette.datastructures import Headers
 
 from app.api.middleware.errors import ApiError
-from app.api.middleware.trace import TRACE_HEADER, TRACE_ID_VAR
 from app.api.v1.schemas.common import (
     PROTECTION_UNAVAILABLE_MSG,
     RATE_LIMIT_EXCEEDED_MSG,
@@ -262,13 +261,13 @@ class RateLimitMiddleware:
         msg: str,
         extra_headers: dict[str, str] | None = None,
     ) -> None:
-        trace_id = TRACE_ID_VAR.get() or ""
+        # 不在此手动写 X-Trace-Id：外层 TraceMiddleware 的 send_with_header 已为每个
+        # http.response.start 写入该头；此处再写会因 Starlette MutableHeaders 大小写
+        # 敏感查找而追加重复头（T086 契约测试暴露）。
         body = json.dumps(
             error_response(code, msg).model_dump(mode="json"), ensure_ascii=False
         ).encode("utf-8")
         headers = [(b"content-type", b"application/json; charset=utf-8")]
-        if trace_id:
-            headers.append((TRACE_HEADER.encode("ascii"), trace_id.encode("ascii")))
         if extra_headers:
             headers.extend((k.encode("ascii"), v.encode("ascii")) for k, v in extra_headers.items())
         await send(

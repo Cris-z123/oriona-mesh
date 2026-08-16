@@ -2,8 +2,9 @@
 
 - 业务错误统一抛出 :class:`ApiError`，携带稳定业务错误码、固定提示与 HTTP 状态码；
 - Pydantic 校验失败映射为 ``10003/400``；
-- 未知路径等 Starlette 404 映射为 ``20007/404``，其余 HTTPException 保持状态码并使用
-  ``50000`` 默认提示；
+- 未知路径等 Starlette 404 映射为 ``20007/404``；其余路由层 HTTPException（405 方法
+  不允许、415 不支持的媒体类型等）为客户端请求错误，保留 HTTP 状态码并映射为
+  ``10003`` 语义业务码（T084 契约冻结），不得用 ``50000``（内部错误）表达；
 - 未捕获异常映射为 ``50000/500``，只记录脱敏后的结构化日志，不把异常或供应商响应返回给客户端。
 """
 
@@ -61,12 +62,13 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        # 非 404 的 HTTPException（如 405/401 路由层错误）暂用 50000 默认提示；
-        # 阶段 6 契约冻结（T084/T086）时须明确其业务码映射，避免语义漂移。
+        # T084 契约冻结：404 映射为 20007；其余路由层 HTTPException（405 方法不允许、
+        # 415 不支持的媒体类型等）均为客户端请求错误，映射为 10003/400 语义业务码并保留
+        # HTTP 状态码，不得用 50000（内部错误）表达客户端路由错误。
         if exc.status_code == 404:
             code, msg = _ERROR_CODE_UNKNOWN_PATH, RESOURCE_NOT_FOUND_MSG
         else:
-            code, msg = _ERROR_CODE_INTERNAL, DEFAULT_ERROR_MSG
+            code, msg = _ERROR_CODE_INVALID_PARAMS, VALIDATION_ERROR_MSG
         return JSONResponse(
             status_code=exc.status_code,
             content=error_response(code, msg).model_dump(mode="json"),

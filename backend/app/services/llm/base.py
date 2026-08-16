@@ -6,6 +6,7 @@
 """
 
 import uuid
+from typing import Any
 
 from app.api.middleware.trace import current_trace_id
 from app.core.settings import Settings, get_settings
@@ -20,8 +21,13 @@ def build_model_call(
     user_id: uuid.UUID,
     settings: Settings | None = None,
     trace_id: str | None = None,
+    options: dict[str, Any] | None = None,
 ) -> ModelCall:
-    """构造业务调用方提交的最小调用上下文（凭证与模型由网关决定）。"""
+    """构造业务调用方提交的最小调用上下文（凭证与模型由网关决定）。
+
+    ``options`` 只允许调用类型相关的非敏感参数（如 rerank 的候选数量
+    ``candidate_count``），不得包含供应商凭证或请求头。
+    """
     settings = settings or get_settings()
     secret = settings.rate_limit.subject_hmac_key.get_secret_value()
     return ModelCall(
@@ -30,4 +36,5 @@ def build_model_call(
         subject_digest=user_fingerprint(str(user_id), secret),
         call_type=call_type,
         content=content,
+        options=options or {},
     )
