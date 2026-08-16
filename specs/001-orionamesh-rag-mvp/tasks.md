@@ -131,27 +131,27 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ### 先写测试
 
-- [ ] T060 [P] [US2] 编写会话 CRUD/分页/消息状态和统一 Citation DTO 契约测试：assistant 严格配对 `streaming/null`、`completed/stop|length`、`failed/error`、`cancelled/cancelled`；`live` 强制两个 UUID、`snapshot` 强制两个 ID 为 null、定位/内容、rank 顺序和页码分页；覆盖知识库完成编排清理后的级联删除及跨用户会话/消息/引用统一 `20007/404`，于 `backend/tests/contract/test_conversations_api.py`
-- [ ] T061 [P] [US2] 编写向量/关键词双路检索只能通过统一 `ChunkRepository` 且强制用户、知识库、版本、完成状态过滤；断言分别低于 `RETRIEVAL_VECTOR_MIN_SIMILARITY`/`RETRIEVAL_TRGM_MIN_SIMILARITY` 的候选在 RRF 前排除，以及 RRF 的失败测试于 `backend/tests/integration/retrieval/test_tenant_version_filters.py`、`backend/tests/unit/services/test_retrieval.py`
-- [ ] T062 [P] [US2] 编写无完成资料和两路门槛过滤后为空时的可信拒答测试，断言不调用生成模型、不创建 Citation 且为 `completed/stop`，于 `backend/tests/unit/services/test_answer_rejection.py`
-- [ ] T063 [P] [US2] 编写原始 SSE 文本帧、五类判别事件、`retrieval_done` 与详情复用 Citation 字段语义；断言正常/可信无证据为 `completed/stop`，供应商/模型/服务错误重试耗尽发送 `error` 且持久化 `failed/error`，客户端连接断开固定为 `cancelled/cancelled`，并覆盖 API 进程中断后维护扫描器只条件收敛超时 `streaming` 为 `failed/error`，于 `backend/tests/contract/test_messages_sse_api.py`、`backend/tests/integration/conversations/test_sse_terminal_states.py`
-- [ ] T064 [P] [US2] 编写改写、reranker 和生成网关配置、超时、重试、网关最终失败分类与业务领域降级、脱敏失败零外发的失败测试；Reranker 合法结果按 score 降序且同分保持 RRF 原顺序，缺项、重复/越界序号、非有限 score 或非法 JSON 必须整体回退 RRF；生成失败重试耗尽必须为 `failed/error`，不得误记为 cancelled，于 `backend/tests/unit/services/llm/test_resilience.py`
+- [x] T060 [P] [US2] 编写会话 CRUD/分页/消息状态和统一 Citation DTO 契约测试：assistant 严格配对 `streaming/null`、`completed/stop|length`、`failed/error`、`cancelled/cancelled`；`live` 强制两个 UUID、`snapshot` 强制两个 ID 为 null、定位/内容、rank 顺序和页码分页；覆盖知识库完成编排清理后的级联删除及跨用户会话/消息/引用统一 `20007/404`，于 `backend/tests/contract/test_conversations_api.py`
+- [x] T061 [P] [US2] 编写向量/关键词双路检索只能通过统一 `ChunkRepository` 且强制用户、知识库、版本、完成状态过滤；断言分别低于 `RETRIEVAL_VECTOR_MIN_SIMILARITY`/`RETRIEVAL_TRGM_MIN_SIMILARITY` 的候选在 RRF 前排除，以及 RRF 的失败测试于 `backend/tests/integration/retrieval/test_tenant_version_filters.py`、`backend/tests/unit/services/test_retrieval.py`
+- [x] T062 [P] [US2] 编写无完成资料和两路门槛过滤后为空时的可信拒答测试，断言不调用生成模型、不创建 Citation 且为 `completed/stop`，于 `backend/tests/unit/services/test_answer_rejection.py`
+- [x] T063 [P] [US2] 编写原始 SSE 文本帧、五类判别事件、`retrieval_done` 与详情复用 Citation 字段语义；断言正常/可信无证据为 `completed/stop`，供应商/模型/服务错误重试耗尽发送 `error` 且持久化 `failed/error`，客户端连接断开固定为 `cancelled/cancelled`，并覆盖 API 进程中断后维护扫描器只条件收敛超时 `streaming` 为 `failed/error`，于 `backend/tests/contract/test_messages_sse_api.py`、`backend/tests/integration/conversations/test_sse_terminal_states.py`
+- [x] T064 [P] [US2] 编写改写、reranker 和生成网关配置、超时、重试、网关最终失败分类与业务领域降级、脱敏失败零外发的失败测试；Reranker 合法结果按 score 降序且同分保持 RRF 原顺序，缺项、重复/越界序号、非有限 score 或非法 JSON 必须整体回退 RRF；生成失败重试耗尽必须为 `failed/error`，不得误记为 cancelled，于 `backend/tests/unit/services/llm/test_resilience.py`
 
 ### 后端实现
 
-- [ ] T065 [US2] 实现必须绑定当前用户知识库的会话及消息仓储/服务于 `backend/app/services/conversation_service.py`、`backend/app/repositories/conversations.py`
-- [ ] T066 [US2] 实现会话 CRUD、可空标题/最后消息时间、会话/引用页码分页和消息游标分页路由/判别模式，强制 user 消息为 completed、assistant 消息为 streaming 或明确终态；知识库在资料清理完成后才级联对话/消息/引用，资料删除保留引用快照，于 `backend/app/api/v1/routes/conversations.py`、`backend/app/api/v1/schemas/conversations.py`
-- [ ] T067 [US2] 在统一 `ChunkRepository` 中实现向量召回并强制 `user_id`、知识库、当前版本、`completed` 与 documents join 过滤，以及 `RETRIEVAL_VECTOR_MIN_SIMILARITY` 的 SQL 门槛，于 `backend/app/repositories/chunks.py`
-- [ ] T068 [US2] 在同一 `ChunkRepository` 中实现 pg_trgm 关键词召回并复用相同租户/版本/完成状态过滤构造器，以及 `RETRIEVAL_TRGM_MIN_SIMILARITY` 的 SQL 门槛，于 `backend/app/repositories/chunks.py`
-- [ ] T069 [US2] 实现只消费通过门槛候选的 RRF、合法 reranker 评分按 score 降序且同分保持 RRF 原顺序、3000 token 上下文打包和相邻片段去重；融合为空时返回无证据结果，不调用 Reranker 或生成，于 `backend/app/services/retrieval_service.py`
-- [ ] T070 [US2] 实现只依赖内部 `ModelGateway` 的可选 reranker 用例适配器；10 秒超时和 1 次重试仅由网关执行，业务适配器消费最终结果，失败时整体返回原 RRF 顺序且不应用部分评分，于 `backend/app/services/llm/reranker.py`
-- [ ] T071 [US2] 实现只依赖内部 `ModelGateway` 的查询改写/生成用例适配器和最近三轮最小上下文；改写 10 秒/1 次、生成首 token 15 秒/总时长 120 秒/1 次的超时重试只由网关执行，业务层仅在最终改写失败后使用原问题、最终生成失败后收敛 `failed/error`；实现无证据可信答复 `completed/stop` 和 `20005/409 KNOWLEDGE_BASE_NOT_READY` 于 `backend/app/services/answer_service.py`、`backend/app/services/llm/chat.py`
-- [ ] T072 [US2] 实现统一 Citation DTO：当前来源返回 `source_type=live`，删除/不可访问来源将 ID 置空并从快照返回 `source_type=snapshot`、文件类型、定位和内容预览，按 rank 排序，于 `backend/app/services/citation_service.py`
-- [ ] T073 [US2] 按 OpenAPI 的文本线格式与 `x-sse-event-schema` 判别联合实现五类统一信封事件；正常结束写 `completed/stop|length`，服务错误发送 `error` 并写 `failed/error`，客户端连接断开写 `cancelled/cancelled`，于 `backend/app/api/v1/sse/message_stream.py`
-- [ ] T074 [US2] 将消息发送路由接入检索、生成、引用和 SSE 流，并用单一终态收敛器保证所有异常分支离开 `streaming`；扩展既有维护扫描器，对 `status=streaming AND created_at < now()-MESSAGE_STREAMING_STALE_SECONDS` 的 assistant 消息原子更新为 `failed/error`，不得覆盖已终态消息，于 `backend/app/api/v1/routes/messages.py`、`backend/app/services/message_terminal_state.py`、`backend/app/workers/task_recovery.py`
-- [ ] T075 [P] [US2] 运行并修复确定性的 RRF、有证据回答保存字段完整 Citation、无证据拒答和删除后 snapshot 功能测试于 `backend/tests/unit/services/test_retrieval.py`、`backend/tests/unit/services/test_answer_rejection.py`、`backend/tests/unit/services/test_citations.py`
-- [ ] T076 [P] [US2] 运行并修复 SSE 原始帧、解码判别事件、API 进程中断后的超时 streaming 扫描恢复，以及 `completed/stop|length`、`failed/error`、`cancelled/cancelled` 三类 assistant 终态契约/集成测试于 `backend/tests/contract/test_messages_sse_api.py`、`backend/tests/integration/conversations/test_sse_terminal_states.py`
-- [ ] T077 [P] [US2] 运行并修复改写、reranker 和生成全部经网关、网关最终失败与业务领域降级职责、配置选择、Reranker 评分完整性/稳定排序/非法响应整体回退、超时、重试、脱敏失败回退及生成失败最终 `failed/error` 测试于 `backend/tests/unit/services/llm/test_resilience.py`
+- [x] T065 [US2] 实现必须绑定当前用户知识库的会话及消息仓储/服务于 `backend/app/services/conversation_service.py`、`backend/app/repositories/conversations.py`
+- [x] T066 [US2] 实现会话 CRUD、可空标题/最后消息时间、会话/引用页码分页和消息游标分页路由/判别模式，强制 user 消息为 completed、assistant 消息为 streaming 或明确终态；知识库在资料清理完成后才级联对话/消息/引用，资料删除保留引用快照，于 `backend/app/api/v1/routes/conversations.py`、`backend/app/api/v1/schemas/conversations.py`
+- [x] T067 [US2] 在统一 `ChunkRepository` 中实现向量召回并强制 `user_id`、知识库、当前版本、`completed` 与 documents join 过滤，以及 `RETRIEVAL_VECTOR_MIN_SIMILARITY` 的 SQL 门槛，于 `backend/app/repositories/chunks.py`
+- [x] T068 [US2] 在同一 `ChunkRepository` 中实现 pg_trgm 关键词召回并复用相同租户/版本/完成状态过滤构造器，以及 `RETRIEVAL_TRGM_MIN_SIMILARITY` 的 SQL 门槛，于 `backend/app/repositories/chunks.py`
+- [x] T069 [US2] 实现只消费通过门槛候选的 RRF、合法 reranker 评分按 score 降序且同分保持 RRF 原顺序、3000 token 上下文打包和相邻片段去重；融合为空时返回无证据结果，不调用 Reranker 或生成，于 `backend/app/services/retrieval_service.py`
+- [x] T070 [US2] 实现只依赖内部 `ModelGateway` 的可选 reranker 用例适配器；10 秒超时和 1 次重试仅由网关执行，业务适配器消费最终结果，失败时整体返回原 RRF 顺序且不应用部分评分，于 `backend/app/services/llm/reranker.py`
+- [x] T071 [US2] 实现只依赖内部 `ModelGateway` 的查询改写/生成用例适配器和最近三轮最小上下文；改写 10 秒/1 次、生成首 token 15 秒/总时长 120 秒/1 次的超时重试只由网关执行，业务层仅在最终改写失败后使用原问题、最终生成失败后收敛 `failed/error`；实现无证据可信答复 `completed/stop` 和 `20005/409 KNOWLEDGE_BASE_NOT_READY` 于 `backend/app/services/answer_service.py`、`backend/app/services/llm/chat.py`
+- [x] T072 [US2] 实现统一 Citation DTO：当前来源返回 `source_type=live`，删除/不可访问来源将 ID 置空并从快照返回 `source_type=snapshot`、文件类型、定位和内容预览，按 rank 排序，于 `backend/app/services/citation_service.py`
+- [x] T073 [US2] 按 OpenAPI 的文本线格式与 `x-sse-event-schema` 判别联合实现五类统一信封事件；正常结束写 `completed/stop|length`，服务错误发送 `error` 并写 `failed/error`，客户端连接断开写 `cancelled/cancelled`，于 `backend/app/api/v1/sse/message_stream.py`
+- [x] T074 [US2] 将消息发送路由接入检索、生成、引用和 SSE 流，并用单一终态收敛器保证所有异常分支离开 `streaming`；扩展既有维护扫描器，对 `status=streaming AND created_at < now()-MESSAGE_STREAMING_STALE_SECONDS` 的 assistant 消息原子更新为 `failed/error`，不得覆盖已终态消息，于 `backend/app/api/v1/routes/messages.py`、`backend/app/services/message_terminal_state.py`、`backend/app/workers/task_recovery.py`
+- [x] T075 [P] [US2] 运行并修复确定性的 RRF、有证据回答保存字段完整 Citation、无证据拒答和删除后 snapshot 功能测试于 `backend/tests/unit/services/test_retrieval.py`、`backend/tests/unit/services/test_answer_rejection.py`、`backend/tests/unit/services/test_citations.py`
+- [x] T076 [P] [US2] 运行并修复 SSE 原始帧、解码判别事件、API 进程中断后的超时 streaming 扫描恢复，以及 `completed/stop|length`、`failed/error`、`cancelled/cancelled` 三类 assistant 终态契约/集成测试于 `backend/tests/contract/test_messages_sse_api.py`、`backend/tests/integration/conversations/test_sse_terminal_states.py`
+- [x] T077 [P] [US2] 运行并修复改写、reranker 和生成全部经网关、网关最终失败与业务领域降级职责、配置选择、Reranker 评分完整性/稳定排序/非法响应整体回退、超时、重试、脱敏失败回退及生成失败最终 `failed/error` 测试于 `backend/tests/unit/services/llm/test_resilience.py`
 
 **检查点**：所有回答仅以当前用户、知识库、已完成当前版本资料为证据；SSE 事件使用统一信封；纯聊天模式不存在。
 

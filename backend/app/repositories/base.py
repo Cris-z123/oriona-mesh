@@ -18,6 +18,7 @@ from app.api.v1.schemas.common import (
     KNOWLEDGE_BASE_NOT_FOUND_MSG,
     RESOURCE_NOT_FOUND_MSG,
 )
+from app.models.enums import KnowledgeBaseStatus
 from app.models.knowledge_base import KnowledgeBase
 
 
@@ -75,5 +76,19 @@ def require_knowledge_base(session: Session, kb_id: uuid.UUID, user_id: uuid.UUI
         select(KnowledgeBase).where(KnowledgeBase.id == kb_id, KnowledgeBase.user_id == user_id)
     )
     if kb is None:
+        raise ApiError(20002, KNOWLEDGE_BASE_NOT_FOUND_MSG, 404)
+    return kb
+
+
+def require_active_knowledge_base(
+    session: Session, kb_id: uuid.UUID, user_id: uuid.UUID
+) -> KnowledgeBase:
+    """读取当前用户范围内且状态为 ``active`` 的知识库（data-model.md 知识库边界）。
+
+    对话创建与消息发送等绑定操作只接受 active 知识库；``deleting``/``delete_failed``
+    对内容与子资源读取隐藏，统一映射 ``20002/404``。
+    """
+    kb = require_knowledge_base(session, kb_id, user_id)
+    if kb.status != KnowledgeBaseStatus.ACTIVE:
         raise ApiError(20002, KNOWLEDGE_BASE_NOT_FOUND_MSG, 404)
     return kb
