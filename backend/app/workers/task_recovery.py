@@ -6,6 +6,9 @@
   名额，并按重试预算恢复 ``queued`` 或收敛为失败；deleting 资料的超时 lease
   取消 attempt/task 并激活 ``delete_cleanup``；
 - 投递兜底：对超过重投阈值仍 ``queued`` 的任务幂等重投（Celery 投递丢失）；
+- 知识库删除收敛（T081）：任一子资料 ``failed/delete_cleanup/20015`` 时置
+  ``delete_failed/20015`` 最小墓碑；全部子资料 ``deleted`` 且无活动 attempt 后
+  物理删除知识库并级联对话、消息和引用；
 - 幂等清理：删除过期上传幂等记录；
 - streaming 消息收敛（T074）：对超过 ``MESSAGE_STREAMING_STALE_SECONDS`` 且仍
   ``streaming`` 的 assistant 消息原子收敛为 ``failed/error``，不得覆盖已终态；
@@ -30,9 +33,11 @@ from app.models.enums import (
     DocumentStatus,
     DocumentTaskStatus,
     DocumentTaskType,
+    KnowledgeBaseStatus,
     MessageRole,
     MessageStatus,
 )
+from app.models.knowledge_base import KnowledgeBase
 from app.models.processing_lease import DocumentProcessingLease
 from app.models.upload_request import DocumentUploadRequest
 from app.services.document_deletion_service import queue_delete_cleanup
@@ -57,7 +62,8 @@ def run_maintenance_scan(
     dispatch: Callable[[str, tuple], None] | None = None,
     settings: Settings | None = None,
 ) -> None:
-    """周期维护扫描：上传接管 → 名额回收 → 无租约接管 → queued 重投 → 幂等清理 → streaming 收敛。"""
+    """周期维护扫描：上传接管 → 名额回收 → 无租约接管 → queued 重投 → 知识库删除
+    收敛 → 幂等清理 → streaming 收敛。"""
     settings = settings or get_settings()
     dispatch = dispatch or _default_dispatch
     now = datetime.now(UTC)
@@ -65,6 +71,7 @@ def run_maintenance_scan(
     scan_expired_leases(session, dispatch=dispatch, now=now)
     scan_running_without_lease(session, dispatch=dispatch, now=now)
     redispatch_stuck_queued_tasks(session, dispatch=dispatch, now=now)
+    scan_knowledge_base_deletions(session, now=now)
     cleanup_expired_upload_requests(session, now=now)
     converge_stale_streaming_messages(
         session,
@@ -414,6 +421,72 @@ def redispatch_stuck_queued_tasks(
     for task in tasks:
         _dispatch_safe(dispatch, task.task_type, task.id)
     return len(tasks)
+
+
+def scan_knowledge_base_deletions(
+    session: Session,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """收敛删除中（deleting）知识库（T081 / data-model.md 删除知识库）。
+
+    - 任一子资料为 ``failed/delete_cleanup/20015``：置 ``delete_failed/20015``
+      最小墓碑（仅所属用户列表/详情可见，子资源仍隐藏），等待重试 DELETE；
+    - 全部子资料均为 ``deleted`` 且无活动 attempt：物理删除知识库并级联对话、
+      消息和引用，之后再次 DELETE 返回 404；
+    - 仍有子资料处于 ``deleting`` 清理中：保持 ``deleting``，等待下一轮扫描。
+    """
+    now = now or datetime.now(UTC)
+    kb_ids = session.scalars(
+        select(KnowledgeBase.id).where(KnowledgeBase.status == KnowledgeBaseStatus.DELETING)
+    ).all()
+    converged = 0
+    for kb_id in kb_ids:
+        try:
+            if _converge_knowledge_base_deletion(session, kb_id, now):
+                converged += 1
+        except Exception:  # noqa: BLE001 - 单条收敛失败不阻塞整轮扫描
+            session.rollback()
+            logger.warning(
+                "knowledge_base_deletion_converge_failed",
+                knowledge_base_id=str(kb_id),
+                error_type="converge",
+            )
+    return converged
+
+
+def _converge_knowledge_base_deletion(
+    session: Session,
+    kb_id: uuid.UUID,
+    now: datetime,
+) -> bool:
+    """单条 deleting 知识库收敛：锁定复查后置 delete_failed 或物理删除。"""
+    kb = session.scalar(select(KnowledgeBase).where(KnowledgeBase.id == kb_id).with_for_update())
+    if kb is None or kb.status != KnowledgeBaseStatus.DELETING:
+        session.rollback()
+        return False
+    docs = session.scalars(
+        select(Document)
+        .where(
+            Document.knowledge_base_id == kb.id,
+            Document.user_id == kb.user_id,
+        )
+        .with_for_update()
+    ).all()
+    if any(doc.is_delete_cleanup_failed for doc in docs):
+        # 任一子资料删除清理重试耗尽：收敛为仅属主可见的 delete_failed 最小墓碑。
+        kb.status = KnowledgeBaseStatus.DELETE_FAILED
+        kb.delete_error_code = 20015
+        session.commit()
+        return True
+    if any(doc.status != DocumentStatus.DELETED for doc in docs):
+        # 仍有子资料处于 deleting 清理中（含正在运行的 delete_cleanup）。
+        session.rollback()
+        return False
+    # 全部子资料 deleted 且无活动 attempt：物理删除并级联对话/消息/引用。
+    session.delete(kb)
+    session.commit()
+    return True
 
 
 def cleanup_expired_upload_requests(

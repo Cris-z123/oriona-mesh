@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
+from app.models.document_task import DocumentTask
 from app.models.enums import DocumentStatus, FileType, KnowledgeBaseStatus
 from app.models.knowledge_base import KnowledgeBase
 from app.models.user import User
@@ -207,10 +208,11 @@ class TestDelete:
         assert resp.status_code == 404
         assert resp.json()["code"] == 20002
 
-    def test_delete_non_empty_conflict(
+    def test_delete_non_empty_orchestrates_and_hides(
         self, client: TestClient, db_session: Session, clean_rate_limit_keys
     ) -> None:
         tokens = _register(client, "kb-full@example.com")
+        headers = _headers(tokens)
         user = db_session.query(User).filter_by(email="kb-full@example.com").one()
         kb = KnowledgeBase(user_id=user.id, name="full")
         db_session.add(kb)
@@ -228,10 +230,30 @@ class TestDelete:
         )
         db_session.add(doc)
         db_session.commit()
-        # 非空知识库的 deleting 编排由 T081 实现；当前返回 20008/409。
-        resp = client.delete(f"/v1/knowledge-bases/{kb.id}", headers=_headers(tokens))
-        assert resp.status_code == 409
-        assert resp.json()["code"] == 20008
+        # T081 非空知识库删除编排：置 deleting、编排资料删除，提交后立即隐藏。
+        resp = client.delete(f"/v1/knowledge-bases/{kb.id}", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 0
+        db_session.expire_all()
+        kb = db_session.get(KnowledgeBase, kb.id)
+        assert kb is not None
+        assert kb.status == KnowledgeBaseStatus.DELETING
+        doc = db_session.get(Document, doc.id)
+        assert doc is not None
+        assert doc.status == DocumentStatus.DELETING
+        # 删除中的知识库及子资源对普通读取隐藏。
+        resp = client.get(f"/v1/knowledge-bases/{kb.id}", headers=headers)
+        assert resp.status_code == 404
+        assert resp.json()["code"] == 20002
+        resp = client.get(f"/v1/knowledge-bases/{kb.id}/documents", headers=headers)
+        assert resp.status_code == 404
+        assert resp.json()["code"] == 20002
+        # 重复 DELETE 幂等成功且不创建新任务。
+        tasks_before = db_session.query(DocumentTask).count()
+        resp = client.delete(f"/v1/knowledge-bases/{kb.id}", headers=headers)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        assert db_session.query(DocumentTask).count() == tasks_before
 
     def test_cross_user_delete_20002(
         self, client: TestClient, db_session: Session, clean_rate_limit_keys

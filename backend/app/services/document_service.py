@@ -39,7 +39,7 @@ from app.models.enums import (
     UploadRequestStatus,
 )
 from app.models.upload_request import DocumentUploadRequest
-from app.repositories.base import require_knowledge_base
+from app.repositories.base import require_active_knowledge_base
 from app.repositories.document_tasks import DocumentTaskRepository
 from app.repositories.documents import DocumentRepository
 from app.repositories.upload_requests import UploadRequestRepository
@@ -94,8 +94,9 @@ class DocumentService:
         files: list[UploadFile],
         idempotency_key: str | None = None,
     ) -> UploadOutcome:
-        # 知识库归属校验前置（20002/404，不泄露资源存在性；避免探测请求读取文件内容）。
-        require_knowledge_base(self.session, knowledge_base_id, user_id)
+        # 知识库归属与状态校验前置（20002/404，不泄露资源存在性；避免探测请求
+        # 读取文件内容）。删除中/删除失败知识库不接受上传（data-model.md 知识库边界）。
+        require_active_knowledge_base(self.session, knowledge_base_id, user_id)
         validated = validate_upload_batch(files)
         if idempotency_key:
             existing = self.upload_requests.find(user_id, knowledge_base_id, idempotency_key)
@@ -246,7 +247,12 @@ class DocumentService:
                 Document.id.in_(doc_ids),
                 Document.status == DocumentStatus.PENDING,
             )
-            .values(status=DocumentStatus.QUEUED, updated_at=now)
+            .values(
+                status=DocumentStatus.QUEUED,
+                # 镜像初始 parse 阶段（T082：详情 DTO 暴露当前任务阶段）。
+                current_task_type=DocumentTaskType.PARSE,
+                updated_at=now,
+            )
         )
         self.session.execute(
             update(DocumentTask)
