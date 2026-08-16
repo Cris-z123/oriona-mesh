@@ -71,13 +71,33 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # 分级限流（RATE_LIMIT_*）；default_factory 保证每次构造时重新读取环境变量。
-    rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
+    # 嵌套 BaseSettings 不继承父级 env_file，必须显式传入同一环境文件，否则
+    # .env.local/.env.test 中的 RATE_LIMIT_* 等值被静默忽略（回归测试锁定）。
+    # pyright 无法解析 pydantic-settings 以 __pydantic_self__ 开头的 __init__
+    # 签名（运行时签名声明了 _env_file），故对调用点加定向 ignore。
+    rate_limit: RateLimitSettings = Field(
+        default_factory=lambda: RateLimitSettings(
+            _env_file=_resolve_env_file(),  # type: ignore[reportCallIssue]
+        )
+    )
     # 资料持久卷与处理（DOCUMENT_*）
-    storage: StorageSettings = Field(default_factory=StorageSettings)
+    storage: StorageSettings = Field(
+        default_factory=lambda: StorageSettings(
+            _env_file=_resolve_env_file(),  # type: ignore[reportCallIssue]
+        )
+    )
     # 模型出口网关（MODEL_GATEWAY_*）
-    model_gateway: ModelGatewaySettings = Field(default_factory=ModelGatewaySettings)
+    model_gateway: ModelGatewaySettings = Field(
+        default_factory=lambda: ModelGatewaySettings(
+            _env_file=_resolve_env_file(),  # type: ignore[reportCallIssue]
+        )
+    )
     # 检索与消息恢复（RETRIEVAL_* / MESSAGE_STREAMING_STALE_SECONDS）
-    retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    retrieval: RetrievalSettings = Field(
+        default_factory=lambda: RetrievalSettings(
+            _env_file=_resolve_env_file(),  # type: ignore[reportCallIssue]
+        )
+    )
 
     @property
     def is_deployment(self) -> bool:
