@@ -12,13 +12,20 @@ skip，不静默失败。
 """
 
 import os
+import tempfile
 from collections.abc import Generator
+from pathlib import Path
 
 # 先加载 .env.test（python-dotenv 不覆盖已存在的环境变量），再固定测试环境模式。
 from dotenv import load_dotenv
 
 load_dotenv(".env.test", override=False)
 os.environ.setdefault("APP_ENV", "test")
+# 测试共享持久卷根目录：系统临时目录，避免客户端测试写入真实 /data/orionamesh。
+os.environ.setdefault(
+    "DOCUMENT_STORAGE_ROOT",
+    str(Path(tempfile.gettempdir()) / "orionamesh-test-storage"),
+)
 os.environ.setdefault("AUTH_JWT_SECRET_KEY", "test-jwt-secret-" + "x" * 32)
 os.environ.setdefault("RATE_LIMIT_SUBJECT_HMAC_KEY", "test-rate-limit-" + "y" * 32)
 os.environ.setdefault(
