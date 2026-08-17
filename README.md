@@ -99,7 +99,7 @@ frontend/              # Next.js 前端（骨架；业务渲染自阶段 8 起�
 specs/                 # 功能规格与权威契约文档
 scripts/               # 质量门禁脚本（check-backend.sh / verify-contracts.sh / check-frontend.sh）
 deploy/                # Docker 镜像（docker/）与 Compose 编排（compose/）
-.github/workflows/     # CI（ci.yml）与 GHCR 镜像发布（image.yml）
+.github/workflows/     # CI（ci.yml）与镜像构建/漏洞扫描门禁（image.yml，不发布）
 ```
 
 ## 测试与质量
@@ -144,20 +144,18 @@ docker compose -f deploy/compose/compose.yaml up -d --build
 IP 同源反代示例（前端与 `/v1` API 同源，规避 CORS；SSE 已关闭缓冲）。有域名后追加
 443 监听与证书即可。
 
-### 镜像命名与发布（GitHub Actions）
+### 镜像门禁（GitHub Actions）
 
-- 镜像：`ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`
-  （仓库路径转小写；`packages: write` 权限）。
-- 标签：受保护分支 main 只打不可变 `sha-${GITHUB_SHA}`；正式 Git tag（`v*`）追加语义版本；
-  **永不发布 `latest`**；构建后执行 Trivy 漏洞扫描（HIGH/CRITICAL 即失败）。
+- `image.yml` 在 main / 正式 Git tag（`v*`）推送时构建 backend/frontend 双镜像并执行
+  Trivy 漏洞扫描（HIGH/CRITICAL 即失败）；镜像**不发布** GHCR——部署为服务器本地构建。
 
-### 升级与回滚
+### 升级与回滚（服务器本地构建）
 
-- 升级顺序：`docker compose pull` → 串行 one-off migrate 容器执行
-  `alembic upgrade head` → **成功后**才切换 API/worker/前端并执行健康检查。
+- 升级顺序：`git pull`（新代码）→ `docker compose up -d --build` → 串行 one-off migrate
+  容器执行 `alembic upgrade head` → **成功后**才切换 API/worker/前端并执行健康检查。
   API/worker 启动命令不自动迁移；迁移失败时旧容器保持运行。
-- 回滚：把 `BACKEND_IMAGE`/`FRONTEND_IMAGE` **成对**切换到上一已验证
-  `sha-` 标签，执行 `docker compose pull && docker compose up -d`，再执行健康检查。
+- 回滚：服务器上把仓库切回上一已验证 commit（`git checkout <commit>`），执行
+  `docker compose up -d --build`（Docker 层缓存使重建快速）再执行健康检查。
   镜像回滚**不会自动降级数据库**；破坏性迁移发布前必须先人工备份，失败时停止发布并按备份恢复。
 
 ## 文档导航

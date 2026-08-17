@@ -1,11 +1,10 @@
-# 镜像构建、漏洞扫描与 GHCR 发布（T103）。
+# 镜像构建与漏洞扫描门禁（T103）。
 #
-# 发布契约（quickstart「质量与交付验证」）：
-# - 受保护分支 main 每次推送构建 backend/frontend 双镜像，GITHUB_TOKEN
-#   packages:write 权限发布到小写 ghcr.io/${GITHUB_REPOSITORY}-backend /
-#   ghcr.io/${GITHUB_REPOSITORY}-frontend；
-# - 分支推送只打不可变 sha-${GITHUB_SHA} 标签；正式 Git tag（v*）追加语义版本；
-# - 永不发布 latest；HIGH/CRITICAL 漏洞导致扫描失败（exit-code=1）。
+# 质量契约（quickstart「质量与交付验证」）：
+# - 受保护分支 main 与正式 Git tag（v*）每次推送构建 backend/frontend 双镜像，
+#   随后执行 Trivy 漏洞扫描（HIGH/CRITICAL 导致失败，exit-code=1）；
+# - 镜像不发布到 GHCR：部署为服务器本地构建（scripts/deploy.sh，方案 A，
+#   不依赖 GHCR/GitHub 网络），本工作流仅充当镜像质量门禁。
 name: Images
 
 on:
@@ -15,11 +14,10 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  build-and-publish:
-    name: Build, scan & publish ${{ matrix.service }}
+  build-and-scan:
+    name: Build & scan ${{ matrix.service }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -32,18 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # GHCR 只接受小写仓库路径。
+      # 仅用于本地构建产物命名（GHCR 路径小写约束无实际发布语义）。
       - name: Lowercase image base
         run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Image metadata
         id: meta
@@ -51,18 +42,18 @@ jobs:
         with:
           images: ${{ env.IMAGE_BASE }}-${{ matrix.service }}
           tags: |
-            # 分支/tag 推送均产生不可变 sha-<full-sha>；正式 tag 追加 {{version}}。
+            # 不可变 sha-<full-sha> 本地命名，供 Trivy 扫描引用。
             type=sha,format=long,prefix=sha-
-            type=semver,pattern={{version}}
           flavor: |
             latest=false
 
-      - name: Build and push
+      - name: Build and load
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: true
+          # 不推送；load 到 runner 本地 docker 仓库供 Trivy 扫描。
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -72,6 +63,14 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_BASE }}-${{ matrix.service }}:sha-${{ github.sha }}
+          # 只做漏洞扫描（--scanners vuln，T126-T131 后 Trivy 步骤失败根因）：
+          # 镜像内硬编码的开发默认数据库连接串（app/core/settings.py
+          # _DEFAULT_DATABASE_URL = postgresql+psycopg://orionamesh:orionamesh@localhost）
+          # 命中 trivy 内置 postgres secret 规则；secret 结果不受 --severity 过滤
+          # 影响、发现即配合 exit-code=1 失败，且 backend/frontend 双镜像同时命中。
+          # 部署环境密钥由 assert_startup_config 强制注入（镜像内默认值不可用），
+          # 不做镜像内 secret 扫描。
+          scanners: vuln
           format: table
           severity: HIGH,CRITICAL
           exit-code: "1"

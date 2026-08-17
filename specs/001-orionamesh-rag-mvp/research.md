@@ -539,3 +539,10 @@ one-off 后端容器执行 `alembic upgrade head`，API/worker 不得在启动�
 不可逆迁移伪装成安全操作。
 
 **备选方案**：部署 `latest` 或自动 down migration；拒绝，前者无法准确回滚，后者可能破坏数据。
+
+**修订（2026-08-17，T132）**：腾讯云服务器访问 GHCR 网络不通，部署方式改为方案 A——服务器
+本地构建（`scripts/deploy.sh`，`docker compose up -d --build`），不依赖 GHCR/GitHub 网络；
+`image.yml` 保留双镜像构建与 Trivy 漏洞扫描门禁（HIGH/CRITICAL 即失败）但不再发布镜像（移除
+login/`packages: write`/push）。回滚改为服务器 `git checkout` 上一已验证 commit 后重建。
+不可变标签可审计、成对回滚避免契约漂移、不自动降级数据库、迁移失败保持旧容器运行等原则不变
+（升级/回滚顺序见 quickstart「冻结的部署契约」）。
