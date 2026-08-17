@@ -1,0 +1,27 @@
+{
+  "name": "orionamesh",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrionaMesh 个人知识库 RAG MVP：pnpm 根工作区（唯一锁文件）",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22.13.1"
+  },
+  "scripts": {
+    "build": "pnpm --filter frontend build",
+    "dev": "pnpm --filter frontend dev",
+    "lint": "pnpm --filter frontend lint",
+    "format": "pnpm --filter frontend format",
+    "format:check": "pnpm --filter frontend format:check",
+    "typecheck": "pnpm --filter frontend typecheck",
+    "test": "pnpm --filter frontend test",
+    "test:e2e": "pnpm --filter frontend test:e2e",
+    "check": "bash scripts/check-backend.sh && bash scripts/check-frontend.sh"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

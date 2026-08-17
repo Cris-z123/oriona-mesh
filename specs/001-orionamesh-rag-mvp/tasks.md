@@ -200,20 +200,20 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 **目的**：把所有技术栈固定为可复现、可校验和可部署的工程基线。该阶段不得开发前端 UI。
 
-- [ ] T092 创建 pnpm 根工作区、Node 版本、共享脚本及唯一根锁文件策略于 `package.json`、`pnpm-workspace.yaml`、`pnpm-lock.yaml`、`.nvmrc`、`frontend/package.json`
-- [ ] T093 配置前端 pnpm 项目、Next.js/React/TypeScript/Tailwind/Shadcn/UI/Pino 依赖及开发命令于 `frontend/package.json`、`frontend/next.config.ts`、`frontend/src/app/layout.tsx`
-- [ ] T094 [P] 配置 ESLint、Prettier、TypeScript 严格检查和 Vitest 于 `frontend/eslint.config.mjs`、`frontend/.prettierrc.json`、`frontend/tsconfig.json`、`frontend/vitest.config.ts`、`frontend/tests/setup.ts`
-- [ ] T095 [P] 配置 Pino 仅用于 Next.js 服务端日志，并过滤 token、密码、资料内容和引用快照于 `frontend/src/lib/logging/server.ts`
-- [ ] T096 [P] 按 Quickstart 固定变量名创建认证、限流、持久卷/解析/并发、processing lease、upload pending 超时、幂等及模型网关环境模板；认证只包含必填且至少 32 字节的 `AUTH_JWT_SECRET_KEY`，不得提供算法/TTL 覆盖变量；模型包含必填 `MODEL_GATEWAY_ENDPOINT`、`MODEL_GATEWAY_PROVIDER=openai-compatible`，Query Rewrite/Generation 必填、Embedding 默认、Reranker 空值禁用，endpoint 示例使用 HTTPS（本机回环开发例外可用 HTTP），非法认证配置、缺失/不允许的 HTTP endpoint 或未知 provider 拒绝就绪；模板按 quickstart 环境契约提供 `backend/.env.local.example`（本地开发）与 `backend/.env.test.example`（自动化测试），部署环境不提供仓库内模板、由 Docker/CI 注入，于 `.env.example`、`backend/.env.local.example`、`backend/.env.test.example`、`frontend/.env.example`
-- [ ] T097 创建后端多阶段 Docker 镜像并用 uv 锁定安装 PyMuPDF、python-docx、markdown-it-py、charset-normalizer 等依赖于 `deploy/docker/backend.Dockerfile`
-- [ ] T098 [P] 创建前端多阶段 Docker 镜像并用根 pnpm 锁文件锁定安装与构建于 `deploy/docker/frontend.Dockerfile`
-- [ ] T099 创建 PostgreSQL、Redis、单次串行 `alembic upgrade head` 的 one-off migrate、后端 API、Celery worker 和前端的 Docker Compose 编排，为 API/worker 共同挂载 `/data/orionamesh` 命名持久卷并验证共用网关/限流配置；API/worker 使用同一 `BACKEND_IMAGE` 且启动命令不得自动迁移，前端使用 `FRONTEND_IMAGE`，本地可回退到 build，于 `deploy/compose/compose.yaml`
-- [ ] T100 [P] 创建后端质量、迁移（含 last_login 可空、Citation 非空/唯一、delete_cleanup、知识库 `active/deleting/delete_failed` 与 `delete_error_code=20015` 配对约束）、扩展、OpenAPI、SSE、解析依赖、本地卷、HS256 认证配置、限流和模型网关必填 endpoint/评分契约校验脚本于 `scripts/check-backend.sh`、`scripts/verify-contracts.sh`
-- [ ] T101 [P] 创建前端 pnpm lint、format、类型检查、单测和端到端校验脚本于 `scripts/check-frontend.sh`
-- [ ] T102 创建 GitHub Actions PR CI：uv/根 pnpm 锁定安装、Ruff、Pyright、ESLint、Prettier、类型检查、单元/集成/契约/架构测试、迁移与契约校验于 `.github/workflows/ci.yml`
-- [ ] T103 创建 GitHub Actions 受保护分支双镜像构建、漏洞扫描和 GHCR 发布工作流：以 `GITHUB_TOKEN packages:write` 发布小写的 `ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`，受保护分支仅部署不可变 `sha-${GITHUB_SHA}` 标签，正式 Git tag 追加语义版本，禁止部署 `latest`，于 `.github/workflows/image.yml`
-- [ ] T104 [P] 编写 Docker Compose 健康/就绪、HS256 密钥缺失/过短、模型 endpoint 缺失/非法/非回环 HTTP 时拒绝就绪且 HTTPS 与本机回环 HTTP 可用、one-off 迁移成功后才切换 API/worker、迁移失败保持旧容器、API/worker 不自动迁移、容器重建后持久卷保留、锁文件不可变安装及配置失败冒烟测试于 `backend/tests/integration/test_delivery_stack.py`
-- [ ] T105 运行 A6 工具链、Compose、持久卷重建、阶段编排/fencing/删除接管、CI workflow、可信代理限流/出口安全门禁与双镜像构建验证；冻结环境变量、GHCR 镜像命名、不可变 SHA 发布、`BACKEND_IMAGE`/`FRONTEND_IMAGE` 成对回滚命令，以及“串行 one-off Alembic 成功后才切换容器、API/worker 不自动迁移、镜像回滚不自动降级数据库、破坏性迁移先人工备份”说明于 `README.md`、`specs/001-orionamesh-rag-mvp/quickstart.md`
+- [x] T092 创建 pnpm 根工作区、Node 版本、共享脚本及唯一根锁文件策略于 `package.json`、`pnpm-workspace.yaml`、`pnpm-lock.yaml`、`.nvmrc`、`frontend/package.json`
+- [x] T093 配置前端 pnpm 项目、Next.js/React/TypeScript/Tailwind/Shadcn/UI/Pino 依赖及开发命令于 `frontend/package.json`、`frontend/next.config.ts`、`frontend/src/app/layout.tsx`
+- [x] T094 [P] 配置 ESLint、Prettier、TypeScript 严格检查和 Vitest 于 `frontend/eslint.config.mjs`、`frontend/.prettierrc.json`、`frontend/tsconfig.json`、`frontend/vitest.config.ts`、`frontend/tests/setup.ts`
+- [x] T095 [P] 配置 Pino 仅用于 Next.js 服务端日志，并过滤 token、密码、资料内容和引用快照于 `frontend/src/lib/logging/server.ts`
+- [x] T096 [P] 按 Quickstart 固定变量名创建认证、限流、持久卷/解析/并发、processing lease、upload pending 超时、幂等及模型网关环境模板；认证只包含必填且至少 32 字节的 `AUTH_JWT_SECRET_KEY`，不得提供算法/TTL 覆盖变量；模型包含必填 `MODEL_GATEWAY_ENDPOINT`、`MODEL_GATEWAY_PROVIDER=openai-compatible`，Query Rewrite/Generation 必填、Embedding 默认、Reranker 空值禁用，endpoint 示例使用 HTTPS（本机回环开发例外可用 HTTP），非法认证配置、缺失/不允许的 HTTP endpoint 或未知 provider 拒绝就绪；模板按 quickstart 环境契约提供 `backend/.env.local.example`（本地开发）与 `backend/.env.test.example`（自动化测试），部署环境不提供仓库内模板、由 Docker/CI 注入，于 `.env.example`、`backend/.env.local.example`、`backend/.env.test.example`、`frontend/.env.example`
+- [x] T097 创建后端多阶段 Docker 镜像并用 uv 锁定安装 PyMuPDF、python-docx、markdown-it-py、charset-normalizer 等依赖于 `deploy/docker/backend.Dockerfile`
+- [x] T098 [P] 创建前端多阶段 Docker 镜像并用根 pnpm 锁文件锁定安装与构建于 `deploy/docker/frontend.Dockerfile`
+- [x] T099 创建 PostgreSQL、Redis、单次串行 `alembic upgrade head` 的 one-off migrate、后端 API、Celery worker 和前端的 Docker Compose 编排，为 API/worker 共同挂载 `/data/orionamesh` 命名持久卷并验证共用网关/限流配置；API/worker 使用同一 `BACKEND_IMAGE` 且启动命令不得自动迁移，前端使用 `FRONTEND_IMAGE`，本地可回退到 build，于 `deploy/compose/compose.yaml`
+- [x] T100 [P] 创建后端质量、迁移（含 last_login 可空、Citation 非空/唯一、delete_cleanup、知识库 `active/deleting/delete_failed` 与 `delete_error_code=20015` 配对约束）、扩展、OpenAPI、SSE、解析依赖、本地卷、HS256 认证配置、限流和模型网关必填 endpoint/评分契约校验脚本于 `scripts/check-backend.sh`、`scripts/verify-contracts.sh`
+- [x] T101 [P] 创建前端 pnpm lint、format、类型检查、单测和端到端校验脚本于 `scripts/check-frontend.sh`
+- [x] T102 创建 GitHub Actions PR CI：uv/根 pnpm 锁定安装、Ruff、Pyright、ESLint、Prettier、类型检查、单元/集成/契约/架构测试、迁移与契约校验于 `.github/workflows/ci.yml`
+- [x] T103 创建 GitHub Actions 受保护分支双镜像构建、漏洞扫描和 GHCR 发布工作流：以 `GITHUB_TOKEN packages:write` 发布小写的 `ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`，受保护分支仅部署不可变 `sha-${GITHUB_SHA}` 标签，正式 Git tag 追加语义版本，禁止部署 `latest`，于 `.github/workflows/image.yml`
+- [x] T104 [P] 编写 Docker Compose 健康/就绪、HS256 密钥缺失/过短、模型 endpoint 缺失/非法/非回环 HTTP 时拒绝就绪且 HTTPS 与本机回环 HTTP 可用、one-off 迁移成功后才切换 API/worker、迁移失败保持旧容器、API/worker 不自动迁移、容器重建后持久卷保留、锁文件不可变安装及配置失败冒烟测试于 `backend/tests/integration/test_delivery_stack.py`
+- [x] T105 运行 A6 工具链、Compose、持久卷重建、阶段编排/fencing/删除接管、CI workflow、可信代理限流/出口安全门禁与双镜像构建验证；冻结环境变量、GHCR 镜像命名、不可变 SHA 发布、`BACKEND_IMAGE`/`FRONTEND_IMAGE` 成对回滚命令，以及“串行 one-off Alembic 成功后才切换容器、API/worker 不自动迁移、镜像回滚不自动降级数据库、破坏性迁移先人工备份”说明于 `README.md`、`specs/001-orionamesh-rag-mvp/quickstart.md`
 
 **检查点**：uv、pnpm、全部质量工具、Docker/Compose、本地持久卷、CI/CD、可配置模型网关、Redis 限流与出口安全已验证；T105 后才允许前端 UI。
 

@@ -16,8 +16,8 @@
 
 - **后端**：Python 3.12 · FastAPI · SQLAlchemy 2 · Alembic · Celery · Redis · PostgreSQL 16（pgvector / pg_trgm）
 - **模型接入**：LangChain（OpenAI-compatible 协议）+ 统一出口网关（脱敏、路由、审计）
-- **前端**：Next.js · React · TypeScript · Tailwind CSS（规划中）
-- **工具链**：uv · pnpm · Ruff · Pyright · pytest · Docker Compose
+- **前端**：Next.js · React · TypeScript · Tailwind CSS · shadcn/ui · Vitest（骨架已完成，UI 渲染待后端 A6 门禁后的阶段 8 起）
+- **工具链**：uv · pnpm（根工作区唯一锁文件）· Ruff · Pyright · pytest · ESLint · Prettier · Docker Compose · GitHub Actions
 
 ## 快速开始
 
@@ -48,11 +48,24 @@ curl http://localhost:8000/health
 
 开发热重载：`uv run uvicorn app.main:app --reload`。
 
+### 启动前端（骨架）
+
+```bash
+cd orionames-mesh  # 仓库根目录（pnpm 工作区）
+pnpm install --frozen-lockfile   # 按根目录唯一 pnpm-lock.yaml 安装
+pnpm dev                         # Next.js 开发服务器，默认 http://localhost:3000
+```
+
 ### 配置
 
 后端配置通过环境变量注入，唯一的配置入口是 `backend/app/core/settings.py`。最小启动只需要
 `DATABASE_URL`（未设置时使用本地开发默认值）；认证、限流与模型网关的必填变量在对应功能
-交付后生效。完整的环境变量契约见 [quickstart.md](specs/001-orionamesh-rag-mvp/quickstart.md)。
+交付后生效。环境模板（已提交、可复制的示例）：
+`backend/.env.local.example`（本地开发）、`backend/.env.test.example`（自动化测试）、
+`.env.example`（部署参考）与 `frontend/.env.example`（前端）。所有实际 `.env.local` /
+`.env.test` 文件均被 gitignore 排除，部署环境（staging/production）不读取仓库内任何
+`.env` 文件，由 Docker/CI 注入。完整的环境变量契约见
+[quickstart.md](specs/001-orionamesh-rag-mvp/quickstart.md)。
 
 ## API
 
@@ -79,10 +92,14 @@ backend/               # FastAPI 后端
     workers/           # Celery 任务与恢复/维护扫描器
   migrations/          # Alembic 迁移（0001 起：vector/pg_trgm/pgcrypto 扩展）
   tests/               # unit / integration / contract / architecture / security
-frontend/              # Next.js 前端（尚未开始）
+frontend/              # Next.js 前端（骨架；业务渲染自阶段 8 起）
+  src/app/             # App Router 根布局（阶段 7 无业务渲染）
+  src/lib/             # 工具（cn）、Pino 服务端日志（脱敏）
+  tests/               # unit / component / e2e（阶段 8 起）
 specs/                 # 功能规格与权威契约文档
-scripts/               # 质量门禁脚本（check-backend.sh）
-deploy/                # Docker Compose 编排（规划中）
+scripts/               # 质量门禁脚本（check-backend.sh / verify-contracts.sh / check-frontend.sh）
+deploy/                # Docker 镜像（docker/）与 Compose 编排（compose/）
+.github/workflows/     # CI（ci.yml）与 GHCR 镜像发布（image.yml）
 ```
 
 ## 测试与质量
@@ -93,10 +110,55 @@ uv run pytest                    # 单元 / 集成 / 契约 / 架构测试
 uv run ruff format .             # 格式化
 uv run ruff check .              # 静态检查
 uv run pyright                   # 类型检查
-bash ../scripts/check-backend.sh # 一键质量门禁（lock → sync → ruff → pyright → pytest）
+bash ../scripts/check-backend.sh # 一键后端门禁（lock → sync → ruff → pyright → pytest → 契约）
+
+# 前端（仓库根目录，pnpm 工作区）
+pnpm lint                        # ESLint
+pnpm format:check                # Prettier
+pnpm typecheck                   # TypeScript 严格检查
+pnpm test                        # Vitest
+bash scripts/check-frontend.sh   # 一键前端门禁（frozen-lockfile → lint → format → tsc → vitest → e2e）
+
+bash scripts/verify-contracts.sh # 契约与部署基线（OpenAPI/迁移离线 SQL/配置契约，可独立运行）
 ```
 
 数据库迁移可用离线模式预览而不需要数据库：`uv run alembic upgrade head --sql`。
+
+## 部署
+
+### Docker Compose（单机）
+
+`deploy/compose/compose.yaml` 编排 PostgreSQL（pgvector）、Redis、one-off 迁移、后端
+API、Celery worker 与前端；API/worker 共用 `BACKEND_IMAGE` 并共同挂载
+`/data/orionamesh` 命名持久卷，前端使用 `FRONTEND_IMAGE`（本地省略镜像变量时回退到
+Dockerfile 构建）。必填变量通过 `deploy/compose/.env` 提供（缺失时
+`docker compose config` 直接报错）。
+
+```bash
+docker compose -f deploy/compose/compose.yaml up -d --build
+```
+
+**国内服务器部署（无 GHCR 依赖）**：`deploy/compose/.env.example` 提供全部必填变量模板；
+`scripts/deploy.sh` 一键构建并启动（基础镜像走 Docker Hub 加速，npmjs/PyPI 可经
+`NPM_REGISTRY` / `UV_INDEX_URL` 构建参数指向镜像源）；`deploy/nginx/nginx.conf` 提供
+IP 同源反代示例（前端与 `/v1` API 同源，规避 CORS；SSE 已关闭缓冲）。有域名后追加
+443 监听与证书即可。
+
+### 镜像命名与发布（GitHub Actions）
+
+- 镜像：`ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`
+  （仓库路径转小写；`packages: write` 权限）。
+- 标签：受保护分支 main 只打不可变 `sha-${GITHUB_SHA}`；正式 Git tag（`v*`）追加语义版本；
+  **永不发布 `latest`**；构建后执行 Trivy 漏洞扫描（HIGH/CRITICAL 即失败）。
+
+### 升级与回滚
+
+- 升级顺序：`docker compose pull` → 串行 one-off migrate 容器执行
+  `alembic upgrade head` → **成功后**才切换 API/worker/前端并执行健康检查。
+  API/worker 启动命令不自动迁移；迁移失败时旧容器保持运行。
+- 回滚：把 `BACKEND_IMAGE`/`FRONTEND_IMAGE` **成对**切换到上一已验证
+  `sha-` 标签，执行 `docker compose pull && docker compose up -d`，再执行健康检查。
+  镜像回滚**不会自动降级数据库**；破坏性迁移发布前必须先人工备份，失败时停止发布并按备份恢复。
 
 ## 文档导航
 

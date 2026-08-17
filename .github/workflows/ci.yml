@@ -1,0 +1,104 @@
+# PR CI（T102）：后端与前端质量门禁。
+# - 后端：uv 锁定安装 → Ruff format/check → Pyright → 全量 pytest（真实 PostgreSQL
+#   pgvector + Redis）→ verify-contracts.sh（OpenAPI/迁移/配置契约 + 契约测试子集）；
+# - 前端：根 pnpm 锁文件（--frozen-lockfile）→ ESLint → Prettier → tsc → Vitest。
+# 与 scripts/check-backend.sh、scripts/check-frontend.sh 保持同一命令序列。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend quality & contracts
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: orionamesh
+          POSTGRES_PASSWORD: orionamesh
+          POSTGRES_DB: orionamesh
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orionamesh -d orionamesh"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv (pinned)
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+
+      - name: Lockfile check & locked sync
+        run: |
+          uv lock --check
+          uv sync --locked
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Pyright
+        run: uv run pyright
+
+      - name: Full test suite
+        env:
+          APP_ENV: test
+          TEST_DATABASE_URL: postgresql+psycopg://orionamesh:orionamesh@localhost:5432/orionamesh_test
+          REDIS_URL: redis://localhost:6379/0
+        run: uv run pytest
+
+      - name: Contract & deployment baseline checks
+        run: bash ../scripts/verify-contracts.sh
+
+  frontend:
+    name: Frontend quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "10.28.2"
+
+      - name: Setup Node (.nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Frozen-lockfile install
+        run: pnpm install --frozen-lockfile
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Prettier check
+        run: pnpm format:check
+
+      - name: TypeScript typecheck
+        run: pnpm typecheck
+
+      - name: Vitest
+        run: pnpm test

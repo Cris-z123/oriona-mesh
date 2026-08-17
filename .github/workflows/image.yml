@@ -1,0 +1,78 @@
+# 镜像构建、漏洞扫描与 GHCR 发布（T103）。
+#
+# 发布契约（quickstart「质量与交付验证」）：
+# - 受保护分支 main 每次推送构建 backend/frontend 双镜像，GITHUB_TOKEN
+#   packages:write 权限发布到小写 ghcr.io/${GITHUB_REPOSITORY}-backend /
+#   ghcr.io/${GITHUB_REPOSITORY}-frontend；
+# - 分支推送只打不可变 sha-${GITHUB_SHA} 标签；正式 Git tag（v*）追加语义版本；
+# - 永不发布 latest；HIGH/CRITICAL 漏洞导致扫描失败（exit-code=1）。
+name: Images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-publish:
+    name: Build, scan & publish ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            dockerfile: deploy/docker/backend.Dockerfile
+          - service: frontend
+            dockerfile: deploy/docker/frontend.Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR 只接受小写仓库路径。
+      - name: Lowercase image base
+        run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-${{ matrix.service }}
+          tags: |
+            # 分支/tag 推送均产生不可变 sha-<full-sha>；正式 tag 追加 {{version}}。
+            type=sha,format=long,prefix=sha-
+            type=semver,pattern={{version}}
+          flavor: |
+            latest=false
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Vulnerability scan (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_BASE }}-${{ matrix.service }}:sha-${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
