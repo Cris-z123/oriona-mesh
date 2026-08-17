@@ -21,6 +21,34 @@
 与出口安全语义（脱敏失败零外发、日志白名单）均为自动化门禁。冻结后接口变更必须先更新契约文档
 再同步实现与任务。A6 工程化门禁（T092–T105）完成后才允许开始前端 UI。
 
+## A6 交付门禁记录（T105，2026-08-17）
+
+工程化、部署与 CI/CD 门禁已通过。验证结果：
+
+| 门禁 | 交付物 / 验证 | 结果 |
+|---|---|---|
+| 后端全量回归（含 T104 交付栈测试 16 项：静态编排契约/配置就绪/锁文件/`docker compose config`） | `backend/` `uv run pytest` | 736 passed / 2 skipped |
+| 后端质量工具 | Ruff format/check、Pyright | 全绿 |
+| 契约与部署基线（OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式；迁移离线 SQL 的 last_login 可空/Citation 非空唯一/delete_cleanup/知识库 `delete_error_code=20015` 配对约束；扩展；HS256 无覆盖变量；限流与模型出口默认值；解析依赖；契约测试子集） | `scripts/verify-contracts.sh` | 通过（168 passed / 1 skipped） |
+| 前端质量门禁（根锁文件安装 → ESLint → Prettier → tsc → Vitest） | `scripts/check-frontend.sh` | 通过 |
+| 完整 Compose 冒烟（构建双镜像 → one-off migrate → API/worker/前端健康 → 容器重建后 `/data/orionamesh` 卷保留） | `RUN_DELIVERY_SMOKE=1` 下的 `tests/integration/test_delivery_stack.py::TestFullStackSmoke` | **1 passed**（本地构建验证；本机 Docker Hub 受限时经镜像拉取基础镜像，CI 不受影响） |
+| GitHub Actions | `ci.yml`（PR CI）、`image.yml`（双镜像构建/Trivy 扫描/GHCR 发布） | 已交付，随首次推送生效 |
+
+**冻结的部署契约**（与上文「质量与交付验证」一致）：
+
+- 镜像命名：小写 `ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`；
+  受保护分支只打不可变 `sha-${GITHUB_SHA}` 标签，正式 Git tag（`v*`）追加语义版本，永不发布 `latest`。
+- 升级顺序：`docker compose pull` → 串行 one-off migrate 容器执行 `alembic upgrade head` →
+  成功后切换 API/worker/前端并健康检查；API/worker 启动命令不自动迁移；迁移失败时旧容器保持运行。
+- 回滚：`BACKEND_IMAGE`/`FRONTEND_IMAGE` **成对**切换到上一已验证 `sha-` 标签，执行
+  `docker compose pull && docker compose up -d`，再执行健康检查。镜像回滚不会自动降级数据库；
+  破坏性迁移发布前必须先人工备份，失败时停止发布并按备份恢复。
+- 环境变量以本文档「环境变量文件与部署安全契约」及下方配置契约为唯一真相源；示例模板：
+  `.env.example`（部署参考）、`backend/.env.local.example`、`backend/.env.test.example`、
+  `frontend/.env.example`；部署模式不读取仓库内 `.env` 文件。
+
+A6 通过后允许开始前端 UI（阶段 8 起）。
+
 ## 前置条件
 
 - 可用的 PostgreSQL，已启用向量与相似文本匹配扩展。

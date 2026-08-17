@@ -1,0 +1,11 @@
+# 构建产物与生成文件不参与 Prettier 校验。
+.next/
+out/
+node_modules/
+coverage/
+playwright-report/
+test-results/
+
+# Next.js 托管维护的文件：next build 会按自身风格重写这两个文件。
+next-env.d.ts
+tsconfig.json

@@ -1,0 +1,4 @@
+# 根 pnpm 工作区：唯一 pnpm-lock.yaml 位于仓库根目录（quickstart 锁文件契约）。
+# 所有前端包必须在 packages 列表内；不允许子目录自建锁文件或 node_modules。
+packages:
+  - frontend

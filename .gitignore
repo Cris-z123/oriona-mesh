@@ -16,4 +16,10 @@ backend/.env
 # Node / pnpm（Phase 7 起使用）
 node_modules/
 .pnpm-store/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
 
+frontend/tsconfig.tsbuildinfo

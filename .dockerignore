@@ -1,0 +1,43 @@
+# 两个 Dockerfile（backend/frontend）共用仓库根作为构建上下文；镜像不需要以下内容。
+.git
+.gitignore
+.dockerignore
+docs
+specs
+scripts
+deploy
+.github
+.claude
+.agents
+.specify
+*.md
+
+# 后端（运行时不需要测试与本地环境文件；部署环境由 Docker/CI 注入变量）
+backend/.venv
+backend/tests
+backend/**/__pycache__
+backend/**/*.pyc
+backend/.env
+backend/.env.*
+backend/.pytest_cache
+backend/.ruff_cache
+backend/.pyright
+
+# 前端（构建产物与测试不需要进入镜像）
+frontend/node_modules
+frontend/.next
+frontend/tests
+frontend/.env
+frontend/.env.*
+frontend/playwright-report
+frontend/test-results
+frontend/coverage
+
+# 通用
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.pyright
+node_modules
+.pnpm-store

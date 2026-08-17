@@ -1,0 +1,163 @@
+# OrionaMesh 单机部署编排（T099）。
+# 服务：PostgreSQL 16（pgvector/pg_trgm）· Redis 7 · one-off migrate · 后端 API ·
+#       Celery worker · 前端。
+#
+# 部署契约（quickstart「质量与交付验证」）：
+# - 升级顺序：先拉取镜像 → 串行 one-off migrate（alembic upgrade head）成功 →
+#   再启动 API/worker/前端；迁移失败时 API/worker 不启动，旧容器保持运行；
+# - API/worker 启动命令不得自动迁移（本编排由 migrate 服务独占迁移）；
+# - API/worker 使用同一 BACKEND_IMAGE 并共同挂载 /data/orionamesh 命名持久卷，
+#   容器重建后资料必须保留；前端使用 FRONTEND_IMAGE；
+# - 本地可回退到 build（省略 BACKEND_IMAGE/FRONTEND_IMAGE 时按 Dockerfile 构建）；
+# - 必填变量在部署 .env（本目录下 .env，含 DATABASE_URL 之外的全部关键变量）中提供，
+#   缺失时 `docker compose config` 直接报错。
+#
+# 用法：
+#   docker compose -f deploy/compose/compose.yaml config        # 校验
+#   docker compose -f deploy/compose/compose.yaml up -d         # 构建并启动
+# 回滚（成对切换镜像引用）：改 BACKEND_IMAGE/FRONTEND_IMAGE 为上一已验证 sha- 标签，
+#   docker compose pull && docker compose up -d，随后执行健康检查。
+
+name: orionamesh
+
+# ---- 后端公共配置（API / worker / migrate 共享） ----
+x-backend-image: &backend-image
+  image: ${BACKEND_IMAGE:-orionamesh-backend:local}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/backend.Dockerfile
+    args:
+      # 服务器本地构建时可经 .env 覆盖为镜像源（如 TUNA）。
+      UV_INDEX_URL: ${UV_INDEX_URL:-https://pypi.org/simple}
+
+# APP_ENV=staging：部署模式不读取仓库 .env 文件，且拒绝回退本地默认值。
+# 必填变量缺失时 compose 变量替换直接失败（:?语法），与后端拒绝就绪语义一致。
+x-backend-env: &backend-env
+  APP_ENV: staging
+  DATABASE_URL: postgresql+psycopg://orionamesh:${POSTGRES_PASSWORD:-orionamesh}@postgres:5432/orionamesh
+  REDIS_URL: redis://redis:6379/0
+  DOCUMENT_STORAGE_ROOT: /data/orionamesh
+  AUTH_JWT_SECRET_KEY: ${AUTH_JWT_SECRET_KEY:?set AUTH_JWT_SECRET_KEY (UTF-8 编码后至少 32 字节)}
+  RATE_LIMIT_SUBJECT_HMAC_KEY: ${RATE_LIMIT_SUBJECT_HMAC_KEY:?set RATE_LIMIT_SUBJECT_HMAC_KEY (至少 32 字节)}
+  MODEL_GATEWAY_ENDPOINT: ${MODEL_GATEWAY_ENDPOINT:?set MODEL_GATEWAY_ENDPOINT (HTTPS base URL)}
+  MODEL_GATEWAY_API_KEY: ${MODEL_GATEWAY_API_KEY:?set MODEL_GATEWAY_API_KEY}
+  MODEL_GATEWAY_QUERY_REWRITE_MODEL: ${MODEL_GATEWAY_QUERY_REWRITE_MODEL:?set MODEL_GATEWAY_QUERY_REWRITE_MODEL}
+  MODEL_GATEWAY_GENERATION_MODEL: ${MODEL_GATEWAY_GENERATION_MODEL:?set MODEL_GATEWAY_GENERATION_MODEL}
+  # 可选：留空则禁用 reranker（直接使用 RRF）
+  MODEL_GATEWAY_RERANK_MODEL: ${MODEL_GATEWAY_RERANK_MODEL:-}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: orionamesh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orionamesh}
+      POSTGRES_DB: orionamesh
+    volumes:
+      - orionamesh-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orionamesh -d orionamesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # one-off 迁移：单容器、串行、无重启；成功退出后 API/worker 才允许启动。
+  migrate:
+    <<: *backend-image
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *backend-image
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *backend-env
+    volumes:
+      - orionamesh-data:/data/orionamesh
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  worker:
+    <<: *backend-image
+    # MVP 单机部署：worker -B 内嵌 Beat，周期触发维护扫描器（上传接管/名额回收/
+    # streaming 收敛等）；多实例部署时应拆分独立 beat 服务。
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-B", "--loglevel=info"]
+    environment: *backend-env
+    volumes:
+      - orionamesh-data:/data/orionamesh
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    # inspect ping 每次会完整导入应用（较重），放宽超时与间隔，避免误判不健康。
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.workers.celery_app inspect ping --timeout=15 >/dev/null 2>&1 || exit 1",
+        ]
+      interval: 60s
+      timeout: 30s
+      retries: 2
+      start_period: 30s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-orionamesh-frontend:local}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/frontend.Dockerfile
+      args:
+        # 服务器本地构建时可经 .env 覆盖为 npm 镜像源（如 npmmirror）。
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/v1}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # 任何 HTTP 响应（含 404，骨架阶段无根页面）都证明服务存活；5xx 视为不健康。
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  orionamesh-pgdata:
+  # 本地持久卷：API/worker 共用，挂载于 /data/orionamesh；容器重建后资料必须保留。
+  orionamesh-data:
