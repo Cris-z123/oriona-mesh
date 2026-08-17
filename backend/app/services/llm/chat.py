@@ -10,7 +10,7 @@
 """
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator
 
 from app.core.settings import Settings, get_settings
 from app.infrastructure.model_gateway.service import ModelGatewayService
@@ -71,7 +71,7 @@ class GenerationService:
         query: str,
         context_pack: str,
         history: list[tuple[str, str]],
-    ) -> Iterator[GenerationDelta]:
+    ) -> Generator[GenerationDelta, None, None]:
         content = (
             f"用户问题：{query}\n\n知识库上下文：\n{context_pack}\n\n最近对话：\n"
             f"{_history_text(history)}"

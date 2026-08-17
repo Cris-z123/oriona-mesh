@@ -290,6 +290,17 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 - [ ] T124 审查普通日志、模型调用审计、响应、SSE 和引用快照，确认不含 password/token/secret_key、请求/响应 payload、提示词、问题、片段、文件名、请求头或已删除原始资料于 `backend/app/core/logging.py`、`backend/app/infrastructure/model_gateway/audit.py`、`frontend/src/lib/logging/server.ts`、`backend/tests/integration/test_backend_gate.py`
 - [ ] T125 运行全部确定性后端与前端测试、迁移、OpenAPI/模型出口契约、上传超时接管、阶段编排、写入 fencing、有界资料/知识库删除、删除失败墓碑与下一轮清理历史、解析安全、处理并发、持久卷、架构边界、限流/出口安全、质量工具与 Compose 验证，并记录结果于 `specs/001-orionamesh-rag-mvp/quickstart.md`
 
+## 评审修复（T126–T131）
+
+以下条目为阶段 7 后代码评审发现并修复的资源边界/失败收敛缺陷；代码与测试随条目交付。
+
+- [x] T126 [P] 修复流式生成资源边界：SSE 客户端断连只收敛数据库终态、不停止后台生成线程与模型流；生成链（SSE 生产者 → 网关 `call_stream` → `_stream_rest`/`_first_chunk` 生产者）以停止事件贯穿，消费方退出（断连/超时/生成器关闭）时生产者停止拉取并 `close()` 供应商生成器中止物理请求，不再阻塞在满队列上持续消耗供应商连接与配额；SSE 断连测试断言生成流被关闭且停止拉取、网关超时测试断言供应商流被关闭，于 `backend/app/api/v1/sse/message_stream.py`、`backend/app/infrastructure/model_gateway/service.py`、`backend/tests/integration/conversations/test_sse_terminal_states.py`、`backend/tests/unit/infrastructure/model_gateway/test_gateway.py`
+- [x] T127 [P] 修复解析超时资源边界：解析改在 spawn 子进程中执行，超时终止子进程硬性回收 CPU/内存（daemon 线程无法被强制终止）；解析器以模块级类引用跨进程重建；`ParseError` 显式 `__reduce__` 保证跨进程重建（`Exception.__reduce__` 用 `self.args` 会丢 code）；父进程先取结果再回收进程，避免大结果写入管道缓冲死锁，于 `backend/app/services/parsers/security.py`、`backend/app/services/parsers/base.py`、`backend/tests/unit/services/parsers/test_document_parsers.py`
+- [x] T128 [P] 修复解析对象写入失败未收敛：`write_object` 失败立即以 `20011` 文件持久化失败收敛 attempt/task/document（修复前异常逃逸，attempt 停留 running 等待租约过期），于 `backend/app/workers/document_parse.py`、`backend/tests/integration/documents/test_pipeline_state_machine.py`
+- [x] T129 [P] 修复解析对象泄漏：数据库保存/阶段提交失败（非 fencing）时清理已写解析对象，不遗留 `delete_cleanup` 无法发现的无主派生对象（fencing 分支原有清理不变），于 `backend/app/workers/document_parse.py`、`backend/tests/integration/documents/test_pipeline_state_machine.py`
+- [x] T130 [P] 修复限流中间件忽略注入 `Settings`：`_user_fingerprint` 改用 `self.settings.auth_jwt_secret_key_value` 验签（修复前用全局 `get_settings()`，自定义应用/测试配置下合法用户 token 解码失败、静默跳过用户级限流），于 `backend/app/api/middleware/rate_limit.py`、`backend/tests/unit/infrastructure/rate_limit/test_middleware.py`
+- [x] T131 [P] 修复限流中间件回放截断请求体：请求体超过 64KB 小 JSON 上限时明确拒绝 `413/10003`，不再把截断内容回注给下游（修复前下游收到被篡改的截断 body），于 `backend/app/api/middleware/rate_limit.py`、`backend/tests/unit/infrastructure/rate_limit/test_middleware.py`
+
 ---
 
 ## 依赖与执行顺序

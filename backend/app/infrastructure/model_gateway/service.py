@@ -11,7 +11,7 @@
 import queue
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from typing import Any
 
 from app.infrastructure.model_gateway.audit import ModelCallAudit, log_model_call
@@ -30,6 +30,23 @@ from app.infrastructure.model_gateway.types import (
 
 # 可重试的稳定失败分类；invalid_response/sanitization/configuration 不重试。
 _RETRYABLE_CLASSES = ("network", "timeout", "rate_limited", "provider_error")
+# 生产者线程停止事件轮询入队的等待上限：消费方放弃后能及时感知 stop 并退出。
+_QUEUE_PUT_TIMEOUT = 0.2
+
+
+def _put_with_stop(messages: queue.Queue, item: Any, stop: threading.Event) -> bool:
+    """带停止检查的入队：入队成功返回 True；stop 置位后放弃入队返回 False。
+
+    消费方（生成器主体）放弃后，生产者不得永久阻塞在满队列上：每次入队
+    等待带超时，期间检查停止事件，置位即退出（由调用方关闭供应商流）。
+    """
+    while not stop.is_set():
+        try:
+            messages.put(item, timeout=_QUEUE_PUT_TIMEOUT)
+            return True
+        except queue.Full:
+            continue
+    return False
 
 
 class ModelGatewayService:
@@ -125,11 +142,16 @@ class ModelGatewayService:
             # 前置门槛，不得在 total_timeout 之外再叠加 first_token_timeout
             # （quickstart：MODEL_GATEWAY_GENERATION_TOTAL_TIMEOUT_SECONDS 生成总时长）。
             total_started = time.monotonic()
+            # 每次尝试独立的停止信号：超时/消费方放弃时置位，生产者感知后关闭
+            # 供应商流，避免残留线程继续消耗供应商连接与配额（P1 资源边界）。
+            stop = threading.Event()
             try:
                 chunks = self._adapter.chat_stream(sanitized)
                 # 在重试循环内立即执行首个 next()：适配器生成器体在此执行，
                 # 首块异常/超时才能被网关按预算重试（惰性返回会让重试空转）。
-                first = self._first_chunk(chunks, first_token_timeout, total_started, total_timeout)
+                first = self._first_chunk(
+                    chunks, first_token_timeout, total_started, total_timeout, stop
+                )
                 break
             except GatewayError as exc:
                 retryable = exc.error_class in _RETRYABLE_CLASSES and attempt < retries
@@ -161,6 +183,7 @@ class ModelGatewayService:
             total_timeout,
             attempt,
             total_started,
+            stop,
         )
 
     # ------------------------------------------------------------------
@@ -182,7 +205,7 @@ class ModelGatewayService:
 
     def _stream_rest(
         self,
-        chunks: Iterator[str],
+        chunks: Generator[str, None, None],
         first: str | None,
         call: ModelCall,
         model: str,
@@ -191,22 +214,36 @@ class ModelGatewayService:
         total_timeout: float | None,
         retries_used: int,
         total_started: float,
+        stop: threading.Event,
     ) -> Iterator[GenerationDelta]:
         """消费首个增量之后的流；单 worker 线程 + 队列，总时长截止由网关执行。
 
         总时长从本次流式调用开始（含首 token 等待）持续计时，`total_started`
         由 :meth:`call_stream` 在调用适配器前设置；供应商中途停流或抛错时都能
         被收敛：队列读取带剩余时长超时，适配器异常经队列透传并按稳定分类重抛。
+
+        消费方放弃（总时长超时、生成器被关闭如 SSE 断连）时在 ``finally`` 置位
+        停止信号：生产者不再阻塞于满队列，退出前关闭供应商生成器中止物理请求，
+        避免后台线程残留并持续消耗供应商连接与配额。
         """
         messages: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=8)
 
         def _produce() -> None:
             try:
                 for chunk in chunks:
-                    messages.put(("ok", chunk))
-                messages.put(("eos", None))
+                    if not _put_with_stop(messages, ("ok", chunk), stop):
+                        return
+                _put_with_stop(messages, ("eos", None), stop)
             except BaseException as exc:  # noqa: BLE001 - 供应商异常透传主线程分类
-                messages.put(("err", exc))
+                _put_with_stop(messages, ("err", exc), stop)
+            finally:
+                if stop.is_set():
+                    # 消费方已放弃：关闭供应商生成器，中止仍在进行的物理请求；
+                    # 对已终结的生成器是无害操作。
+                    try:
+                        chunks.close()
+                    except Exception:  # noqa: BLE001 - 关闭失败不影响已收敛的结果
+                        pass
 
         threading.Thread(target=_produce, daemon=True).start()
         emitted = first is not None
@@ -250,6 +287,10 @@ class ModelGatewayService:
                 )
             )
             raise
+        finally:
+            # 任何退出路径（正常 eos/超时/生成器关闭）都置位停止信号：生产者
+            # 及时退出并关闭供应商流，不在满队列上永久阻塞。
+            stop.set()
         self._audit(
             ModelCallAudit(
                 trace_id=call.trace_id,
@@ -268,10 +309,11 @@ class ModelGatewayService:
 
     def _first_chunk(
         self,
-        chunks: Iterator[str],
+        chunks: Generator[str, None, None],
         timeout: float,
         total_started: float,
         total_timeout: float | None,
+        stop: threading.Event,
     ) -> str | None:
         """在超时内取得首个文本增量并执行适配器生成器体。
 
@@ -280,6 +322,9 @@ class ModelGatewayService:
         timeout，不得让首 token 等待叠加在总时长之外。
         线程内异常必须透传（不吞）：供应商在首块前抛错时按网关稳定分类重抛，
         使重试循环能按预算收敛；超时抛 GatewayError(timeout)；空流返回 None。
+
+        超时后置位停止信号：``_pull`` 线程完成在途 ``next()`` 后关闭供应商
+        生成器，中止仍在进行的物理请求（重试并发时不遗留旧供应商流）。
         """
         if total_timeout is not None:
             remaining = total_timeout - (time.monotonic() - total_started)
@@ -295,11 +340,20 @@ class ModelGatewayService:
                 outcome.append(("eos", None))
             except BaseException as exc:  # noqa: BLE001 - 异常透传由调用方分类
                 outcome.append(("err", exc))
+            finally:
+                if stop.is_set():
+                    # 本次尝试已被放弃（首 token 超时）：关闭供应商生成器，中止
+                    # 物理请求；对已终结的生成器是无害操作。
+                    try:
+                        chunks.close()
+                    except Exception:  # noqa: BLE001 - 关闭失败不影响已收敛的超时结果
+                        pass
 
         thread = threading.Thread(target=_pull, daemon=True)
         thread.start()
         thread.join(timeout)
         if thread.is_alive():
+            stop.set()
             raise GatewayError("timeout", "generation first token timeout")
         status, value = outcome[0]
         if status == "err":

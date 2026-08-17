@@ -212,7 +212,7 @@ class TestClientDisconnectConvergence:
     """客户端断开收敛：直接 aclose() 异步生成器模拟连接关闭（生产 uvicorn 在
     send 时抛 ClientDisconnected 并关闭生成器，触发 finally 收敛 cancelled）。"""
 
-    def _answer_service(self, db: Session, conv: Conversation):
+    def _answer_service(self, db: Session, conv: Conversation, generation=None):
         import uuid as _uuid
 
         from app.infrastructure.model_gateway.types import GenerationDelta
@@ -261,7 +261,7 @@ class TestClientDisconnectConvergence:
             conversations=ConversationService(db),
             retrieval=FakeRetrieval(),
             rewrite=FakeRewrite(),
-            generation=FakeGeneration(),
+            generation=generation or FakeGeneration(),
             citations=FakeCitations(),
         )
 
@@ -306,6 +306,66 @@ class TestClientDisconnectConvergence:
         assert assistant is not None
         assert assistant.status == MessageStatus.CANCELLED
         assert assistant.finish_reason == MessageFinishReason.CANCELLED
+
+    def test_disconnect_stops_background_generation(self, db_session: Session) -> None:
+        # P1 资源边界：客户端断连后，后台生成线程必须停止拉取并关闭生成流，
+        # 而不是继续消费模型流或永久阻塞在满队列上。
+        import asyncio
+        import threading
+        import time
+
+        from app.api.v1.sse.message_stream import stream_answer_events
+        from app.infrastructure.model_gateway.types import GenerationDelta
+
+        user = _user(db_session, "sse-disc-stop@example.com")
+        kb, conv = _conv(db_session, user)
+        db_session.commit()
+
+        class CountingGeneration:
+            """持续产出增量并记录拉取/关闭的生成端口。"""
+
+            def __init__(self) -> None:
+                self.pulls = 0
+                self.closed = threading.Event()
+
+            def stream(self, *, user_id, query, context_pack, history):
+                def gen():
+                    try:
+                        while True:
+                            self.pulls += 1
+                            yield GenerationDelta(text="x")
+                    finally:
+                        self.closed.set()
+
+                return gen()
+
+        generation = CountingGeneration()
+        answer = self._answer_service(db_session, conv, generation=generation)
+        bundle = answer.prepare(
+            user_id=user.id,
+            knowledge_base_id=kb.id,
+            conversation_id=conv.id,
+            content="问题",
+        )
+        assert bundle.no_evidence is False
+
+        async def _drive() -> None:
+            from collections.abc import AsyncGenerator
+            from typing import cast
+
+            stream = cast(AsyncGenerator[str, None], stream_answer_events(answer, bundle))
+            await stream.__anext__()  # message_start
+            await stream.__anext__()  # retrieval_done
+            await stream.__anext__()  # delta（生成进行中）
+            await stream.aclose()  # 客户端断开
+
+        asyncio.run(_drive())
+        # 断连后生产者必须关闭生成流（等待上限内收敛）。
+        assert generation.closed.wait(3.0), "generation stream must be closed on disconnect"
+        # 关闭后不得继续拉取模型流。
+        pulled_at_close = generation.pulls
+        time.sleep(0.5)
+        assert generation.pulls == pulled_at_close, "producer must stop pulling after disconnect"
 
 
 class TestTerminalStateConvergence:

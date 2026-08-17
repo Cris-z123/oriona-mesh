@@ -426,6 +426,94 @@ class TestWriteFencing:
         db_session.rollback()
 
 
+class _FailingWriteStorage(FileStorage):
+    """写入失败替身：模拟文件持久化失败（外部存储不可用）。"""
+
+    def write_object(self, object_key: str, content: bytes) -> None:
+        raise OSError("disk full")
+
+
+def _failing_save(self, **kwargs) -> None:  # noqa: ANN001 - 仓储方法替身
+    raise RuntimeError("database unavailable")
+
+
+class TestParseObjectLifecycle:
+    """解析结果对象生命周期：写入失败收敛 20011，数据库失败后清理无主对象。"""
+
+    def test_write_object_failure_converges_20011(
+        self,
+        db_session: Session,
+        storage: FileStorage,
+        dispatch_calls,
+        user_and_kb,
+    ) -> None:
+        # P1 修复：解析对象写入失败必须立即收敛 20011 文件持久化失败，不得让
+        # attempt 停留在 running 等待租约过期。
+        dispatch, calls = dispatch_calls
+        user_id, kb_id = user_and_kb
+        doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "write-fail")
+        calls.clear()
+        task = _task(db_session, doc_id, DocumentTaskType.PARSE)
+        failing = _FailingWriteStorage(storage.storage)
+        process_parse(
+            db_session,
+            task_id=task.id,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=failing,
+            dispatch=dispatch,
+        )
+        db_session.refresh(task)
+        doc = db_session.get(Document, doc_id)
+        assert task.status == DocumentTaskStatus.FAILED
+        assert task.error_code == 20011
+        assert doc is not None
+        assert doc.status == DocumentStatus.FAILED
+        assert doc.error_code == 20011
+        assert doc.error_message == "文件保存失败，请删除后重新上传"
+        assert doc.processing_finished_at is not None
+        # 失败后不投递后续阶段、不创建解析结果行。
+        assert calls == []
+        assert db_session.query(DocumentParseResult).count() == 0
+
+    def test_database_failure_after_write_cleans_up_orphan_object(
+        self,
+        db_session: Session,
+        storage: FileStorage,
+        dispatch_calls,
+        user_and_kb,
+        monkeypatch,
+    ) -> None:
+        # P2 修复：解析对象写入成功后、数据库保存失败（非 fencing）时，必须
+        # 清理已写对象，不得遗留 delete_cleanup 无法发现的无主派生对象。
+        dispatch, _ = dispatch_calls
+        user_id, kb_id = user_and_kb
+        doc_id = _seed_queued_document(db_session, storage, dispatch, user_id, kb_id, "db-fail")
+        task = _task(db_session, doc_id, DocumentTaskType.PARSE)
+        monkeypatch.setattr(ParseResultRepository, "save", _failing_save)
+        process_parse(
+            db_session,
+            task_id=task.id,
+            user_id=user_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            document_version=1,
+            file_storage=storage,
+            dispatch=dispatch,
+        )
+        # 未归类异常按重试预算恢复排队（与解析成功写入前失败的行为一致）。
+        db_session.refresh(task)
+        assert task.status == DocumentTaskStatus.QUEUED
+        assert task.retry_count == 1
+        # 已写对象被清理，无行引用也不残留存储对象。
+        content_key = f"parse/{doc_id}/v1"
+        with pytest.raises(FileNotFoundError):
+            storage.read_object(content_key)
+        assert db_session.query(DocumentParseResult).count() == 0
+
+
 class TestEmbedAndFinalize:
     def test_embed_writes_chunks_directly_and_finalize_publishes(
         self,

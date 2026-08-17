@@ -24,6 +24,21 @@ _CODE_EMPTY = 20010
 _CODE_PARSE = 20001
 
 
+class SlowParser:
+    """超时用例解析器：必须为模块级类（parse_safely 在子进程中按类引用重建）。"""
+
+    def parse(self, content: bytes):
+        time.sleep(5)
+        raise AssertionError("should not complete")
+
+
+class ExplodingParser:
+    """未知异常用例解析器：模块级类，子进程内抛错应映射为 20001。"""
+
+    def parse(self, content: bytes):
+        raise ValueError("boom")
+
+
 # ---------------------------------------------------------------------------
 # 正常解析
 # ---------------------------------------------------------------------------
@@ -228,11 +243,8 @@ class TestSecurityLimits:
         assert "alert(1)" not in result.normalized_text
 
     def test_parse_timeout_rejected(self) -> None:
-        class SlowParser:
-            def parse(self, content: bytes):
-                time.sleep(5)
-                raise AssertionError("should not complete")
-
+        # 解析在子进程中执行：超时后终止解析进程并收敛 20001（而非线程退出后
+        # 解析继续占用 CPU/内存）。
         with pytest.raises(ParseError) as exc:
             parse_safely(
                 SlowParser(),  # type: ignore[arg-type]
@@ -243,10 +255,6 @@ class TestSecurityLimits:
         assert exc.value.code == _CODE_PARSE
 
     def test_parser_raises_unknown_error_maps_to_20001(self) -> None:
-        class ExplodingParser:
-            def parse(self, content: bytes):
-                raise ValueError("boom")
-
         with pytest.raises(ParseError) as exc:
             parse_safely(
                 ExplodingParser(),  # type: ignore[arg-type]

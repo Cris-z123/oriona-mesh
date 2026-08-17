@@ -24,6 +24,7 @@ from app.api.middleware.errors import ApiError
 from app.api.v1.schemas.common import (
     PROTECTION_UNAVAILABLE_MSG,
     RATE_LIMIT_EXCEEDED_MSG,
+    VALIDATION_ERROR_MSG,
     error_response,
 )
 from app.core.redis import get_redis_client
@@ -55,6 +56,13 @@ logger = structlog.get_logger()
 
 _RATE_LIMIT_EXCEEDED_CODE = 10005
 _PROTECTION_UNAVAILABLE_CODE = 50001
+# 请求体超过小 JSON 上限：以 10003（invalid request）明确拒绝。
+_BODY_TOO_LARGE_CODE = 10003
+
+
+class _BodyTooLarge(Exception):
+    """请求体超过小 JSON 读取上限；中间件应返回 413 而非回放截断内容。"""
+
 
 # 仅这些端点需要读取小 JSON 请求体（注册/登录/刷新）；上传等大主体端点不读体。
 _BODY_READ_PATHS: dict[tuple[str, str], str] = {
@@ -94,7 +102,13 @@ class RateLimitMiddleware:
             return await self.app(scope, receive, send)
 
         policy = self.policies[policy_name]
-        subjects, receive = await self._resolve_subjects(scope, receive, policy_name)
+        try:
+            subjects, receive = await self._resolve_subjects(scope, receive, policy_name)
+        except _BodyTooLarge:
+            # 请求体超过小 JSON 上限：明确拒绝，绝不把截断内容回放给下游。
+            return await self._send_error(
+                scope, send, 413, _BODY_TOO_LARGE_CODE, VALIDATION_ERROR_MSG
+            )
         try:
             decision = self._check_policy(policy, subjects)
         except redis_lib.RedisError:
@@ -195,7 +209,10 @@ class RateLimitMiddleware:
         （由下游认证依赖 401 拒绝，本规则跳过）。
         """
         try:
-            sub = decode_access_token(access_token, get_settings().auth_jwt_secret_key_value)
+            # 必须使用注入的 Settings 验签（与限流/Redis 配置同一来源）：用全局
+            # get_settings() 会在自定义应用/测试配置下解码失败，导致合法用户
+            # 无法生成用户限流指纹，静默跳过用户级限流。
+            sub = decode_access_token(access_token, self.settings.auth_jwt_secret_key_value)
         except ApiError:
             return None
         return user_fingerprint(sub, self.rate_limit_settings.subject_hmac_key.get_secret_value())
@@ -209,8 +226,9 @@ class RateLimitMiddleware:
             chunk = message.get("body", b"")
             total += len(chunk)
             if total > _MAX_BODY_BYTES:
-                # 超出小 JSON 上限即放弃解析，主体回注由下游决定；不放大内存。
-                break
+                # 超出小 JSON 上限：拒绝请求，不得把截断内容回放给下游
+                # （截断 JSON 会让下游校验收到被篡改的请求体）。
+                raise _BodyTooLarge()
             chunks.append(chunk)
             more = message.get("more_body", False)
         return b"".join(chunks)

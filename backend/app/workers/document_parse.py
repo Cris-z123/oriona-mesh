@@ -13,8 +13,10 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+import structlog
 from sqlalchemy.orm import Session
 
+from app.api.v1.schemas.documents import ASYNC_ERROR_MESSAGES
 from app.core.settings import Settings, get_settings
 from app.models.document import Document
 from app.models.enums import DocumentStatus
@@ -32,6 +34,8 @@ from app.workers.base import (
     converge_cancelled,
     load_task_boundaries,
 )
+
+logger = structlog.get_logger()
 
 WORKER_NAME = "orionamesh-parse"
 
@@ -123,7 +127,22 @@ def process_parse(
     # 解析结果对象先写（外部 I/O，不持事务）；数据库写入经 fencing 才算提交。
     content_key = f"parse/{document_id}/v{document_version}"
     normalized_bytes = output.normalized_text.encode("utf-8")
-    file_storage.write_object(content_key, normalized_bytes)
+    try:
+        file_storage.write_object(content_key, normalized_bytes)
+    except Exception:
+        # 文件持久化失败：立即收敛 20011（data-model 文件持久化失败），
+        # 不得让 attempt 停留在 running 等待租约过期。
+        session.rollback()
+        orchestrator.fail_stage(
+            attempt_id=attempt.id,
+            user_id=user_id,
+            knowledge_base_id=knowledge_base_id,
+            document_id=document_id,
+            document_version=document_version,
+            error_code=20011,
+            error_message=ASYNC_ERROR_MESSAGES[20011],
+        )
+        return
     try:
         ParseResultRepository(session).save(
             attempt_id=attempt.id,
@@ -151,6 +170,16 @@ def process_parse(
         session.rollback()
         converge_cancelled(session, attempt_id=attempt.id)
     except Exception:
+        # 数据库保存/阶段提交失败（非 fencing）：行随回滚消失，解析对象已无
+        # 引用，必须清理；否则成为 delete_cleanup 无法发现的无主派生对象。
+        try:
+            file_storage.delete_object(content_key)
+        except Exception:  # noqa: BLE001 - 清理失败不阻断失败收敛
+            logger.warning(
+                "parse_object_cleanup_failed",
+                object_key=content_key,
+                attempt_id=str(attempt.id),
+            )
         session.rollback()
         orchestrator.fail_stage(
             attempt_id=attempt.id,
