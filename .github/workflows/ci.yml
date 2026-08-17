@@ -10,6 +10,11 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  # 同一 ref 连续推送时取消旧 run；PR 与 main 各自独立，避免并发堆积。
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -17,6 +22,7 @@ jobs:
   backend:
     name: Backend quality & contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -74,6 +80,7 @@ jobs:
   frontend:
     name: Frontend quality
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

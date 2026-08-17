@@ -1,16 +1,22 @@
 # 镜像构建与漏洞扫描门禁（T103）。
 #
 # 质量契约（quickstart「质量与交付验证」）：
-# - 受保护分支 main 与正式 Git tag（v*）每次推送构建 backend/frontend 双镜像，
-#   随后执行 Trivy 漏洞扫描（HIGH/CRITICAL 导致失败，exit-code=1）；
+# - PR 与 main / 正式 Git tag（v*）推送均构建 backend/frontend 双镜像并执行
+#   Trivy 漏洞扫描（HIGH/CRITICAL 导致失败，exit-code=1）——合并前门禁即含镜像；
 # - 镜像不发布到 GHCR：部署为服务器本地构建（scripts/deploy.sh，方案 A，
 #   不依赖 GHCR/GitHub 网络），本工作流仅充当镜像质量门禁。
 name: Images
 
 on:
+  pull_request:
   push:
     branches: [main]
     tags: ["v*"]
+
+concurrency:
+  # 同一 ref 并发推送/更新时取消旧 run；PR 与 main 各自独立。
+  group: image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,6 +25,7 @@ jobs:
   build-and-scan:
     name: Build & scan ${{ matrix.service }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
