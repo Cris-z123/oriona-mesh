@@ -41,6 +41,13 @@ RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /data/orionamesh \
     && chown -R appuser:appuser /data/orionamesh
 
+# 官方 python 镜像不会随 debian-security 更新重建，基础镜像自带的系统包可能携带
+# 已有修复版的 CVE（如 CVE-2026-53615 util-linux 2.41-5 → 2.41.5-0+deb13u1），
+# 构建时显式升级并清理 apt 索引，保证镜像通过 Trivy 门禁。
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

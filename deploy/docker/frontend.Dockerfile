@@ -54,6 +54,13 @@ COPY --from=builder /repo/frontend/.next/static ./frontend/.next/static
 # 运行时抛 ChunkLoadError）；合并完整 server 目录补全。
 COPY --from=builder /repo/frontend/.next/server ./frontend/.next/server
 
+# 官方 node 镜像不会随 debian-security 更新重建，基础镜像自带的系统包可能携带
+# 已有修复版的 CVE（如 CVE-2026-53615 util-linux），构建时显式升级并清理 apt
+# 索引，保证镜像通过 Trivy 门禁。
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 USER node
 EXPOSE 3000
 CMD ["node", "frontend/server.js"]
