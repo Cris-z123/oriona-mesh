@@ -304,18 +304,19 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 ## 部署方式变更（T132–T133）
 
 - [x] T132 [P] 历史方案：腾讯云服务器本地构建，已被 T133 取代。
-- [ ] T133 [P] 变更为 GitHub Release 镜像归档交付：`image.yml` 在 PR/main 保留 `linux/amd64`
-  双镜像构建与 Trivy HIGH/CRITICAL 门禁，在正式 `v*` tag 导出 backend/frontend 镜像 tar、镜像引用
+- [x] T133 [P] 变更为 GitHub Release 镜像归档交付：`image.yml` 在 PR 保留 `linux/amd64`
+  双镜像构建与 Trivy HIGH/CRITICAL 门禁（main 为受保护分支，仅 PR 合并，合并后不重复构建），在正式 `v*` tag 导出 backend/frontend 镜像 tar、镜像引用
   清单、Compose、Nginx 和部署脚本，生成 SHA-256 并发布公开 GitHub Release；Nginx bind mount 必须由
   部署脚本注入已安装配置的绝对宿主机路径，不得依赖相对路径；Compose 强制完整
   `BACKEND_IMAGE`/`FRONTEND_IMAGE`、不再含服务器 `build`、仅 Nginx 发布 80、PostgreSQL/Redis/API/
   worker/前端均不暴露主机端口；`scripts/deploy.sh` 校验后的发布包通过 `docker image load` 导入应用镜像，
   先执行 one-off migrate，成功后才以 `--no-build --pull never` 更新服务；回滚导入上一 Release，不自动降级
   数据库。同步 `quickstart.md`、`README.md`、`docs/OrionaMesh.md` 与交付栈测试。
-- [ ] T133a [T133] 推送临时正式 `v*` tag，确认 GitHub Actions 成功创建公开 Release；下载资产并验证外层
+- [x] T133a [T133] 推送临时正式 `v*` tag，确认 GitHub Actions 成功创建公开 Release；下载资产并验证外层
   `.sha256`、包内 `release.files.sha256`、两份镜像 tar、`release.env` 和运行时配置完整，记录 run URL 与
   SHA-256 于 `quickstart.md`。
-- [ ] T133b [T133] 在腾讯云 Ubuntu x86_64 首次部署：以无业务数据的旧 Compose 栈释放 80 端口，创建
+- [ ] T133b [T133] 在腾讯云 Ubuntu x86_64 首次部署（v0.1.1 已通过，见 quickstart「T133 交付验证记录」；
+  升级与回滚经确认豁免验收，任务保持未完成状态）：以无业务数据的旧 Compose 栈释放 80 端口，创建
   `0600` 的 `/opt/orionamesh/.env`，运行发布包内 `scripts/deploy.sh`；验证 Nginx 挂载的是
   `/opt/orionamesh/deploy/nginx/nginx.conf` 而非兼容路径、仅 80 监听、`docker compose ps`
   全部就绪、PostgreSQL 的 `vector/pg_trgm/pgcrypto` 扩展、Redis 认证、`/` 反向代理和 Compose 内 API `/ready`，

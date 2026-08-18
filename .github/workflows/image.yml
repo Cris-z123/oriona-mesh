@@ -1,10 +1,10 @@
-# PR/main 保持镜像构建与 Trivy 门禁；正式 v* tag 额外发布可导入的 linux/amd64 镜像包。
+# PR 保持镜像构建与 Trivy 门禁；正式 v* tag 额外发布可导入的 linux/amd64 镜像包。
+# main 是受保护分支（仅 PR 合并），PR 门禁已扫描同一代码，不再单独构建；镜像产物只在正式 tag 产出。
 name: Images
 
 on:
   pull_request:
   push:
-    branches: [main]
     tags: ["v*"]
 
 concurrency:

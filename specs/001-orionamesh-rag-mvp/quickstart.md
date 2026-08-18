@@ -53,15 +53,28 @@
 
 A6 通过后允许开始前端 UI（阶段 8 起）。
 
-### T133 交付验证记录（待执行）
+### T133 交付验证记录
 
-T133 的静态交付契约已纳入 `backend/tests/integration/test_delivery_stack.py`；真实 `v*` tag 的 GitHub
-Release 产物、腾讯云首次部署、升级和回滚尚未执行。完成后必须在此记录 Release URL、提交 SHA、外层
-SHA-256 校验结果、Compose 服务状态、端口暴露、迁移结果和回滚结果，再勾选 `tasks.md` 的 T133/T133a/T133b。
+静态交付契约已纳入 `backend/tests/integration/test_delivery_stack.py`（18 passed / 1 skipped，其中
+skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
 
 > 2026-08-18 的 `v0.1.0` 腾讯云测试在迁移、API、worker 与前端启动后，因相对 Nginx bind mount 被
 > `--project-directory` 解析为错误的 `/opt/nginx/nginx.conf` 而失败；未对外提供服务，也不得将其记为
 > T133b 通过。该测试栈应以不带 `-v` 的 `docker compose down` 清理；修复绝对路径注入并发布新 tag 后重新验收。
+
+**v0.1.1 首次部署验收通过（2026-08-18）**：
+
+- Release：https://github.com/Cris-z123/oriona-mesh/releases/tag/v0.1.1
+  （`orionamesh-release-v0.1.1.tar.gz` + 同名 `.sha256`，266 MB）
+- Workflow run：https://github.com/Cris-z123/oriona-mesh/actions/runs/32124679834（success，8 jobs）
+- 提交 SHA：`cb99695`（分支 `001-orionamesh-rag-mvp`；v0.1.0 为 main 合并提交 `3aa1b35`）
+- 资产校验：外层 `.sha256`、包内 `release.files.sha256`、两份镜像 tar、`release.env` 与运行时配置
+  校验全部通过（deploy.sh 强制 `sha256sum -c` 与文件完整性检查后才会执行）
+- 部署结果：镜像 `docker image load` 导入 → PostgreSQL/Redis 健康 → one-off migrate 成功 →
+  应用服务 `--no-build --pull never` 更新并健康检查通过；Nginx 挂载
+  `/opt/orionamesh/deploy/nginx/nginx.conf`（绝对路径注入生效）；仅 80 监听、`compose ps` 全就绪、
+  PG 扩展、Redis 认证、`/` 反向代理与 Compose 内 API `/ready` 均验证通过
+- 升级与回滚（第二 tag → 首个 tag）经确认豁免验收，不执行；T133b 保持未勾选。
 
 ## 前置条件
 

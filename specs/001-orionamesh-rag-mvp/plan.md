@@ -152,7 +152,8 @@ SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、�
 
 ### 8. 单机镜像归档交付
 
-- PR、`main` 与正式 `v*` tag 都构建 `linux/amd64` 前端/后端镜像并执行 Trivy HIGH/CRITICAL 门禁；
+- PR 与正式 `v*` tag 都构建 `linux/amd64` 前端/后端镜像并执行 Trivy HIGH/CRITICAL 门禁；
+  main 是受保护分支（仅 PR 合并），PR 门禁已扫描同一代码，合并后不重复构建镜像。
   仅正式 tag 导出两个 Docker image tar，与不可变 SHA 镜像引用、Compose、Nginx、部署脚本和 SHA-256
   校验一起发布为 GitHub Release。
 - 腾讯云服务器只校验、解压和导入发布包中的应用镜像；不得访问 GHCR、在服务器构建应用镜像或以
