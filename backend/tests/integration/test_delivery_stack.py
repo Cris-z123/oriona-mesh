@@ -36,6 +36,10 @@ pytestmark = pytest.mark.integration
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPOSE_FILE = REPO_ROOT / "deploy" / "compose" / "compose.yaml"
+_NGINX_CONFIG_MOUNT = (
+    "${ORIONAMESH_NGINX_CONFIG:?set ORIONAMESH_NGINX_CONFIG to the installed nginx.conf}"
+    ":/etc/nginx/conf.d/default.conf:ro"
+)
 
 # Compose 必填变量（与 compose.yaml 的 :? 语法一致；配置校验用占位值）。
 _COMPOSE_REQUIRED_ENV = {
@@ -50,6 +54,7 @@ _COMPOSE_REQUIRED_ENV = {
     "MODEL_GATEWAY_API_KEY": "gateway-key",
     "MODEL_GATEWAY_QUERY_REWRITE_MODEL": "qw",
     "MODEL_GATEWAY_GENERATION_MODEL": "gen",
+    "ORIONAMESH_NGINX_CONFIG": str(REPO_ROOT / "deploy" / "nginx" / "nginx.conf"),
 }
 
 
@@ -90,6 +95,10 @@ class TestComposeDeploymentContract:
         assert services["nginx"]["ports"] == ["80:80"]
         for service in ("postgres", "redis", "api", "worker", "frontend", "migrate"):
             assert "ports" not in services[service]
+
+    def test_nginx_mount_uses_an_explicit_host_configuration_path(self) -> None:
+        nginx_volume = _load_compose()["services"]["nginx"]["volumes"]
+        assert nginx_volume == [_NGINX_CONFIG_MOUNT]
 
     def test_api_and_worker_do_not_auto_migrate(self) -> None:
         compose = _load_compose()
@@ -239,13 +248,23 @@ def _compose_env() -> dict[str, str]:
     env = os.environ.copy()
     for var, value in _COMPOSE_REQUIRED_ENV.items():
         env.setdefault(var, value)
+    env["ORIONAMESH_NGINX_CONFIG"] = str(REPO_ROOT / "deploy" / "nginx" / "nginx.conf")
     return env
 
 
 def test_compose_config_valid(docker_ready) -> None:
     """docker compose config 可解析（YAML 锚点/插值合法，必填变量由 _compose_env 提供）。"""
     result = subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), "config", "--quiet"],
+        [
+            "docker",
+            "compose",
+            "--project-directory",
+            str(REPO_ROOT),
+            "-f",
+            str(COMPOSE_FILE),
+            "config",
+            "--quiet",
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -257,7 +276,15 @@ def test_compose_config_valid(docker_ready) -> None:
 
 def _compose(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
+        [
+            "docker",
+            "compose",
+            "--project-directory",
+            str(REPO_ROOT),
+            "-f",
+            str(COMPOSE_FILE),
+            *args,
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",

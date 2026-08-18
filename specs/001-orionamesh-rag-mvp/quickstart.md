@@ -59,6 +59,10 @@ T133 的静态交付契约已纳入 `backend/tests/integration/test_delivery_sta
 Release 产物、腾讯云首次部署、升级和回滚尚未执行。完成后必须在此记录 Release URL、提交 SHA、外层
 SHA-256 校验结果、Compose 服务状态、端口暴露、迁移结果和回滚结果，再勾选 `tasks.md` 的 T133/T133a/T133b。
 
+> 2026-08-18 的 `v0.1.0` 腾讯云测试在迁移、API、worker 与前端启动后，因相对 Nginx bind mount 被
+> `--project-directory` 解析为错误的 `/opt/nginx/nginx.conf` 而失败；未对外提供服务，也不得将其记为
+> T133b 通过。该测试栈应以不带 `-v` 的 `docker compose down` 清理；修复绝对路径注入并发布新 tag 后重新验收。
+
 ## 前置条件
 
 - 可用的 PostgreSQL，已启用向量与相似文本匹配扩展。
@@ -313,13 +317,14 @@ cd "orionamesh-release-${tag}"
 sudo bash scripts/deploy.sh /opt/orionamesh
 ```
 
-部署脚本会把当前版本的 Compose 与 Nginx 配置安装到 `/opt/orionamesh/deploy/`，导入两份应用镜像，依次
-运行迁移和应用服务。它不会执行 `docker build`、`docker pull`（应用镜像）或删除卷。
+部署脚本会把当前版本的 Compose 与 Nginx 配置安装到 `/opt/orionamesh/deploy/`，并向 Compose 显式注入
+`/opt/orionamesh/deploy/nginx/nginx.conf` 的绝对宿主机路径，导入两份应用镜像，依次运行迁移和应用服务。
+它不会执行 `docker build`、`docker pull`（应用镜像）或删除卷；不要创建 `/opt/nginx` 等兼容目录。
 
 验证：
 
 ```bash
-sudo docker compose --project-directory /opt/orionamesh \
+sudo env ORIONAMESH_NGINX_CONFIG=/opt/orionamesh/deploy/nginx/nginx.conf docker compose --project-directory /opt/orionamesh \
   --env-file /opt/orionamesh/.env \
   --env-file release.env \
   -f /opt/orionamesh/deploy/compose/compose.yaml ps

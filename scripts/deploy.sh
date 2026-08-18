@@ -42,7 +42,7 @@ docker image load -i "$RELEASE_ROOT/images/backend.tar"
 docker image load -i "$RELEASE_ROOT/images/frontend.tar"
 
 compose() {
-    docker compose \
+    ORIONAMESH_NGINX_CONFIG="$INSTALL_ROOT/deploy/nginx/nginx.conf" docker compose \
         --project-directory "$INSTALL_ROOT" \
         --env-file "$INSTALL_ROOT/.env" \
         --env-file "$IMAGE_MANIFEST" \

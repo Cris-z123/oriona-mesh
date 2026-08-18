@@ -306,7 +306,8 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 - [x] T132 [P] 历史方案：腾讯云服务器本地构建，已被 T133 取代。
 - [ ] T133 [P] 变更为 GitHub Release 镜像归档交付：`image.yml` 在 PR/main 保留 `linux/amd64`
   双镜像构建与 Trivy HIGH/CRITICAL 门禁，在正式 `v*` tag 导出 backend/frontend 镜像 tar、镜像引用
-  清单、Compose、Nginx 和部署脚本，生成 SHA-256 并发布公开 GitHub Release；Compose 强制完整
+  清单、Compose、Nginx 和部署脚本，生成 SHA-256 并发布公开 GitHub Release；Nginx bind mount 必须由
+  部署脚本注入已安装配置的绝对宿主机路径，不得依赖相对路径；Compose 强制完整
   `BACKEND_IMAGE`/`FRONTEND_IMAGE`、不再含服务器 `build`、仅 Nginx 发布 80、PostgreSQL/Redis/API/
   worker/前端均不暴露主机端口；`scripts/deploy.sh` 校验后的发布包通过 `docker image load` 导入应用镜像，
   先执行 one-off migrate，成功后才以 `--no-build --pull never` 更新服务；回滚导入上一 Release，不自动降级
@@ -315,7 +316,8 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
   `.sha256`、包内 `release.files.sha256`、两份镜像 tar、`release.env` 和运行时配置完整，记录 run URL 与
   SHA-256 于 `quickstart.md`。
 - [ ] T133b [T133] 在腾讯云 Ubuntu x86_64 首次部署：以无业务数据的旧 Compose 栈释放 80 端口，创建
-  `0600` 的 `/opt/orionamesh/.env`，运行发布包内 `scripts/deploy.sh`；验证仅 80 监听、`docker compose ps`
+  `0600` 的 `/opt/orionamesh/.env`，运行发布包内 `scripts/deploy.sh`；验证 Nginx 挂载的是
+  `/opt/orionamesh/deploy/nginx/nginx.conf` 而非兼容路径、仅 80 监听、`docker compose ps`
   全部就绪、PostgreSQL 的 `vector/pg_trgm/pgcrypto` 扩展、Redis 认证、`/` 反向代理和 Compose 内 API `/ready`，
   并用 `docker network inspect` 核对 Compose 网络实际子网落在 `RATE_LIMIT_TRUSTED_PROXY_CIDRS` 内
   （不匹配时用实际子网更新 `.env` 后重新部署）。

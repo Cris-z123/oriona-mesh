@@ -161,6 +161,8 @@ SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、�
 - 部署脚本固定顺序为：验证发布包 → `docker image load` → PostgreSQL/Redis 健康 → one-off
   `alembic upgrade head` → `docker compose up --no-build --pull never` 更新 API、worker、前端；
   Nginx 与 PostgreSQL/Redis 同属基础设施镜像，首次部署本机缺失时允许拉取（`--pull missing`）。
+  脚本必须向 Compose 显式注入已安装 Nginx 配置的绝对宿主机路径，禁止依赖相对 bind mount 与
+  `--project-directory` 的解析基准。
   迁移失败时不得替换应用服务；回滚只导入上一已验证 Release，绝不自动降级数据库。
 - 具体服务器命令、秘密文件、端口暴露、安全组、升级和回滚步骤只在 `quickstart.md` 维护。
 
