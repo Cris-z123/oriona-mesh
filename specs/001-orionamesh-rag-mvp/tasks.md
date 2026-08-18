@@ -227,16 +227,16 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ### 先写测试
 
-- [ ] T106 [P] [US1] 编写 API 客户端按 `code` 处理同步错误和详情 HTTP `200` 内异步 `error_code`、上传 `Idempotency-Key`、分页、trace_id 与限流的失败测试于 `frontend/tests/unit/lib/api/client.test.ts`
-- [ ] T107 [P] [US1] 编写认证、查看/更新本人基本资料、知识库列表与 `delete_failed/20015` 墓碑/重试删除、上传限制/重放、轮询终态、空文档失败删除、`allowed_actions` 和 404 不可见资源提示组件失败测试于 `frontend/tests/component/user-story-1.test.tsx`
+- [x] T106 [P] [US1] 编写 API 客户端按 `code` 处理同步错误和详情 HTTP `200` 内异步 `error_code`、上传 `Idempotency-Key`、分页、trace_id 与限流的失败测试于 `frontend/tests/unit/lib/api/client.test.ts`
+- [x] T107 [P] [US1] 编写认证、查看/更新本人基本资料、知识库列表与 `delete_failed/20015` 墓碑/重试删除、上传限制/重放、轮询终态、空文档失败删除、`allowed_actions` 和 404 不可见资源提示组件失败测试于 `frontend/tests/component/user-story-1.test.tsx`
 
 ### 前端实现
 
-- [ ] T108 [US1] 实现 API 信封、Bearer 会话及携带 refresh token 请求体的登出、trace_id、SSE、上传幂等键/协调中 409、分页、同步业务码和异步资源 `error_code` 客户端封装于 `frontend/src/lib/api/client.ts`、`frontend/src/lib/api/types.ts`
-- [ ] T109 [US1] 实现登录、注册、会话恢复、受保护路由以及查看/更新本人基本资料于 `frontend/src/app/(auth)/login/page.tsx`、`frontend/src/app/(auth)/register/page.tsx`、`frontend/src/app/profile/page.tsx`、`frontend/src/features/auth/`、`frontend/src/features/profile/ProfileForm.tsx`
-- [ ] T110 [US1] 实现知识库页码列表、创建、编辑和删除渲染；`delete_failed/20015` 仅显示最小“删除未完成”墓碑与 `retry_delete`，不得显示名称、描述或子资源入口，于 `frontend/src/app/knowledge-bases/page.tsx`、`frontend/src/features/knowledge-bases/`
-- [ ] T111 [US1] 实现资料批量选择/拖放、50MB/20 文件提示、请求级幂等键和上传进度渲染于 `frontend/src/features/documents/UploadPanel.tsx`
-- [ ] T112 [US1] 实现资料页码/状态列表、完整 DTO 详情轮询、`20001/20010～20015/50000` 固定安全提示及 `allowed_actions` 操作渲染；`failed/delete_cleanup/20015` 只能显示最小“删除未完成”墓碑与重试删除，不得作为普通失败资料展示，于 `frontend/src/features/documents/DocumentList.tsx`、`frontend/src/features/documents/DocumentDetail.tsx`
+- [x] T108 [US1] 实现 API 信封、Bearer 会话及携带 refresh token 请求体的登出、trace_id、SSE、上传幂等键/协调中 409、分页、同步业务码和异步资源 `error_code` 客户端封装于 `frontend/src/lib/api/client.ts`、`frontend/src/lib/api/types.ts`
+- [x] T109 [US1] 实现登录、注册、会话恢复、受保护路由以及查看/更新本人基本资料于 `frontend/src/app/(auth)/login/page.tsx`、`frontend/src/app/(auth)/register/page.tsx`、`frontend/src/app/profile/page.tsx`、`frontend/src/features/auth/`、`frontend/src/features/profile/ProfileForm.tsx`
+- [x] T110 [US1] 实现知识库页码列表、创建、编辑和删除渲染；`delete_failed/20015` 仅显示最小“删除未完成”墓碑与 `retry_delete`，不得显示名称、描述或子资源入口，于 `frontend/src/app/knowledge-bases/page.tsx`、`frontend/src/features/knowledge-bases/`
+- [x] T111 [US1] 实现资料批量选择/拖放、50MB/20 文件提示、请求级幂等键和上传进度渲染于 `frontend/src/features/documents/UploadPanel.tsx`
+- [x] T112 [US1] 实现资料页码/状态列表、完整 DTO 详情轮询、`20001/20010～20015/50000` 固定安全提示及 `allowed_actions` 操作渲染；`failed/delete_cleanup/20015` 只能显示最小“删除未完成”墓碑与重试删除，不得作为普通失败资料展示，于 `frontend/src/features/documents/DocumentList.tsx`、`frontend/src/features/documents/DocumentDetail.tsx`
 
 **检查点**：前端只消费阶段 6 冻结的后端接口；资料失败不显示重处理/替换；所有错误以 `code/msg/trace_id` 表现。
 

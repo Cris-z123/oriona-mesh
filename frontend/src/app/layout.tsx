@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { AuthProvider } from "@/features/auth/AuthProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,8 +9,8 @@ export const metadata: Metadata = {
 };
 
 /**
- * 根布局：阶段 7 只建立骨架（无业务渲染，前端 UI 任务自阶段 8 起）。
- * 认证/会话等业务能力在 `src/features/` 中实现，不在根布局复制后端规则。
+ * 根布局：阶段 8 起提供认证上下文（会话恢复/用户拉取）。
+ * 业务规则与接口细节保留在 `src/features/` 与 `src/lib/api/`，不在布局中复制。
  */
 export default function RootLayout({
   children,
@@ -18,7 +19,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }
