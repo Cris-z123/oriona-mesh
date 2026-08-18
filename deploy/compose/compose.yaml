@@ -110,7 +110,9 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ../nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # 由部署脚本注入已安装配置的绝对宿主机路径，避免 --project-directory
+      # 改变相对 bind mount 的解析基准。
+      - ${ORIONAMESH_NGINX_CONFIG:?set ORIONAMESH_NGINX_CONFIG to the installed nginx.conf}:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       frontend:
         condition: service_healthy
