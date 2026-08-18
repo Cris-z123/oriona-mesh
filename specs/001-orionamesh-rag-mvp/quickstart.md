@@ -32,16 +32,20 @@
 | 契约与部署基线（OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式；迁移离线 SQL 的 last_login 可空/Citation 非空唯一/delete_cleanup/知识库 `delete_error_code=20015` 配对约束；扩展；HS256 无覆盖变量；限流与模型出口默认值；解析依赖；契约测试子集） | `scripts/verify-contracts.sh` | 通过（168 passed / 1 skipped） |
 | 前端质量门禁（根锁文件安装 → ESLint → Prettier → tsc → Vitest） | `scripts/check-frontend.sh` | 通过 |
 | 完整 Compose 冒烟（构建双镜像 → one-off migrate → API/worker/前端健康 → 容器重建后 `/data/orionamesh` 卷保留） | `RUN_DELIVERY_SMOKE=1` 下的 `tests/integration/test_delivery_stack.py::TestFullStackSmoke` | **1 passed**（本地构建验证；本机 Docker Hub 受限时经镜像拉取基础镜像，CI 不受影响） |
-| GitHub Actions | `ci.yml`（PR CI）、`image.yml`（双镜像构建/Trivy 扫描/GHCR 发布） | 已交付，随首次推送生效 |
+| GitHub Actions | `ci.yml`（PR CI）、`image.yml`（双镜像构建/Trivy 扫描门禁，不发布镜像） | 已交付，随首次推送生效 |
 
 **冻结的部署契约**（与上文「质量与交付验证」一致）：
 
-- 镜像命名：小写 `ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`；
-  受保护分支只打不可变 `sha-${GITHUB_SHA}` 标签，正式 Git tag（`v*`）追加语义版本，永不发布 `latest`。
-- 升级顺序：`docker compose pull` → 串行 one-off migrate 容器执行 `alembic upgrade head` →
-  成功后切换 API/worker/前端并健康检查；API/worker 启动命令不自动迁移；迁移失败时旧容器保持运行。
-- 回滚：`BACKEND_IMAGE`/`FRONTEND_IMAGE` **成对**切换到上一已验证 `sha-` 标签，执行
-  `docker compose pull && docker compose up -d`，再执行健康检查。镜像回滚不会自动降级数据库；
+- 部署方式：单机服务器**本地构建**（方案 A，`scripts/deploy.sh`），不依赖 GHCR/GitHub 网络；
+  代码经 `git clone` / Gitee 中转 / 打包上传后执行 `bash scripts/deploy.sh`（首次）或
+  `bash scripts/deploy.sh update`（更新，内部先 `git pull --ff-only`）；`docker compose up -d --build`
+  在服务器本地构建双镜像，Docker Hub 基础镜像走加速器（腾讯云 `mirror.ccs.tencentyun.com`），
+  PyPI/npm 可经 `UV_INDEX_URL`/`NPM_REGISTRY` 指向镜像源（TUNA/npmmirror）。
+- 升级顺序：`git pull`（新代码）→ `docker compose up -d --build` → 串行 one-off migrate 容器执行
+  `alembic upgrade head` → 成功后切换 API/worker/前端并健康检查；API/worker 启动命令不自动迁移；
+  迁移失败时旧容器保持运行。
+- 回滚：服务器上把仓库切回上一已验证 commit（`git checkout <commit>`），执行
+  `docker compose up -d --build`（Docker 层缓存使重建快速）再健康检查。镜像回滚不会自动降级数据库；
   破坏性迁移发布前必须先人工备份，失败时停止发布并按备份恢复。
 - 环境变量以本文档「环境变量文件与部署安全契约」及下方配置契约为唯一真相源；示例模板：
   `.env.example`（部署参考）、`backend/.env.local.example`、`backend/.env.test.example`、
@@ -236,14 +240,15 @@ Reranker 和 Generation 最大尝试预算之和再加 60 秒；默认值 360 �
 2. 前端依次执行 pnpm lint、Prettier check、TypeScript 类型检查、Vitest 和 Playwright。
 3. 使用 Docker Compose 启动 PostgreSQL、Redis、后端 worker、后端和前端；验证健康与就绪检查。
    重建 API/worker 容器后必须验证 `/data/orionamesh` 命名卷中的原始资料和解析对象仍存在且可读取。
-4. GitHub Actions 必须以锁文件安装依赖、执行上述质量门禁，并用 `GITHUB_TOKEN` 的
-   `packages: write` 权限发布 `ghcr.io/${GITHUB_REPOSITORY}-backend` 与
-   `ghcr.io/${GITHUB_REPOSITORY}-frontend`；仓库路径转小写，受保护分支使用不可变
-   `sha-${GITHUB_SHA}`，正式 Git tag 可追加语义版本，部署不得使用 `latest`。
+4. GitHub Actions 必须以锁文件安装依赖、执行上述质量门禁，并在 `image.yml` 中构建
+   backend/frontend 双镜像后执行 Trivy 漏洞扫描（HIGH/CRITICAL 即失败）；镜像**不发布**——
+   部署为服务器本地构建（见「冻结的部署契约」），`image.yml` 仅充当镜像质量门禁。
 5. 架构门禁必须确认供应商 SDK 和外部模型 HTTP 客户端仅存在于
    `backend/app/infrastructure/model_gateway/providers/`；出口安全测试必须证明脱敏失败时无网络调用。
-6. Compose 通过 `BACKEND_IMAGE`、`FRONTEND_IMAGE` 接收完整镜像引用。回滚必须把两者一起切换到
-   上一已验证 SHA，执行 `docker compose pull`、`docker compose up -d` 和健康检查。镜像回滚不得
-   自动降级数据库；破坏性迁移发布前必须人工备份，失败时停止发布并按备份恢复。
-7. 部署升级必须先拉取镜像，再由单次串行 one-off 后端容器执行 `alembic upgrade head`；成功后才
-   切换 API、worker 和前端并执行健康检查。API/worker 启动不得自动迁移，迁移失败时旧容器保持运行。
+6. Compose 通过 `BACKEND_IMAGE`、`FRONTEND_IMAGE` 接收完整镜像引用；省略时（服务器本地构建）
+   按 Dockerfile 在服务器上构建（`docker compose up -d --build`）。回滚必须把镜像引用/代码版本
+   一起切回上一已验证 commit 后重建，执行 `docker compose up -d --build` 和健康检查。镜像回滚
+   不得自动降级数据库；破坏性迁移发布前必须人工备份，失败时停止发布并按备份恢复。
+7. 部署升级必须先构建（或显式 `pull` 指定镜像）并等待成功，再由单次串行 one-off 后端容器执行
+   `alembic upgrade head`；成功后才切换 API、worker 和前端并执行健康检查。API/worker 启动不得
+   自动迁移，迁移失败时旧容器保持运行。

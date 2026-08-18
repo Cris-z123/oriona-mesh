@@ -52,6 +52,8 @@ def _make_app(limiter: _StubLimiter, *, read_fail_open: bool = True) -> FastAPI:
 
     class _SettingsLike:
         rate_limit = settings
+        # 与测试环境全局 JWT 密钥一致：中间件必须用注入 Settings 验签。
+        auth_jwt_secret_key_value = os.environ["AUTH_JWT_SECRET_KEY"]
 
     app.add_middleware(
         RateLimitMiddleware,
@@ -213,6 +215,7 @@ class TestDeniedResponse:
 
         class _S:
             rate_limit = RateLimitSettings(subject_hmac_key=SecretStr("k" * 40))
+            auth_jwt_secret_key_value = os.environ["AUTH_JWT_SECRET_KEY"]
 
         limiter = _StubLimiter()
         limiter.deny_after = 0
@@ -228,3 +231,74 @@ class TestDeniedResponse:
         resp = client.post("/v1/users", json={"email": "a@b.co", "password": "x" * 8})
         assert resp.status_code == 429
         assert executed == []
+
+
+class TestInjectedSettingsJwt:
+    def test_user_fingerprint_uses_injected_settings_jwt_key(self) -> None:
+        # P2 修复：JWT 验签必须使用注入的 Settings，而非全局 get_settings()。
+        # 注入密钥与全局密钥不同时，合法用户 token 仍须解析出 sub 并生成用户
+        # 限流键；修复前验签用全局密钥失败 → user 规则被跳过 → 0 次调用。
+        key = "injected-jwt-secret-" + "z" * 24
+        limiter = _StubLimiter()
+        settings = RateLimitSettings(subject_hmac_key=SecretStr("k" * 40))
+
+        class _InjectedSettings:
+            rate_limit = settings
+            auth_jwt_secret_key_value = key
+
+        app = FastAPI()
+        app.add_middleware(
+            RateLimitMiddleware,
+            settings=_InjectedSettings(),  # type: ignore[arg-type]
+            limiter=limiter,
+            policies=build_policies(settings),
+        )
+        app.add_middleware(TraceMiddleware)
+        register_exception_handlers(app)
+
+        @app.get("/v1/users/me")
+        def me() -> dict:
+            return success_response({"me": True}).model_dump(mode="json")
+
+        token = create_access_token("user-42", key)
+        client = TestClient(app)
+        resp = client.get("/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        assert len(limiter.calls) == 1
+        assert limiter.calls[0][0].startswith("stub:authenticated-default:")
+        # 原始 token 不得出现在键中（键为解码 sub 的 HMAC）。
+        assert token not in limiter.calls[0][0]
+
+
+class TestOversizedBody:
+    def test_oversized_body_rejected_413_and_handler_not_called(self) -> None:
+        # P3 修复：超过小 JSON 上限（64KB）的请求体必须明确拒绝（413/10003），
+        # 不得把截断内容回放给下游（修复前下游收到被篡改的截断 body）。
+        limiter = _StubLimiter()
+        executed: list[str] = []
+        app = FastAPI()
+
+        class _S:
+            rate_limit = RateLimitSettings(subject_hmac_key=SecretStr("k" * 40))
+            auth_jwt_secret_key_value = os.environ["AUTH_JWT_SECRET_KEY"]
+
+        app.add_middleware(RateLimitMiddleware, settings=_S(), limiter=limiter)  # type: ignore[arg-type]
+        app.add_middleware(TraceMiddleware)
+        register_exception_handlers(app)
+
+        @app.post("/v1/users")
+        def register() -> dict:
+            executed.append("register")
+            return success_response({"created": True}).model_dump(mode="json")
+
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/users",
+            content=b'{"email": "a@b.co", "password": "' + b"x" * (70 * 1024) + b'"}',
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 413
+        body = resp.json()
+        assert body["code"] == 10003
+        assert body["msg"] == "请求参数不合法，请检查后重试"
+        assert executed == []  # 拒绝发生在业务处理器之前，零业务副作用

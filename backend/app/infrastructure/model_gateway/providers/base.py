@@ -5,7 +5,7 @@
 HTTP 客户端只允许出现在 ``providers/`` 目录。
 """
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from typing import Protocol
 
 from app.infrastructure.model_gateway.types import (
@@ -31,8 +31,11 @@ class ProviderAdapter(Protocol):
         """Query Rewrite / Generation 调用：使用 chat 端点；单次物理请求。"""
         ...
 
-    def chat_stream(self, call: SanitizedModelCall) -> Iterator[str]:
-        """Generation 流式调用：按 token 增量产出文本片段；单次物理请求。"""
+    def chat_stream(self, call: SanitizedModelCall) -> Generator[str, None, None]:
+        """Generation 流式调用：按 token 增量产出文本片段；单次物理请求。
+
+        返回值必须是生成器：网关在放弃流时对其调用 ``close()`` 中止物理请求。
+        """
         ...
 
     def rerank(self, call: SanitizedModelCall) -> RerankResult:

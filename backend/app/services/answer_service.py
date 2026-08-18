@@ -11,7 +11,7 @@
 """
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -70,9 +70,15 @@ class RewritePort(Protocol):
 
 
 class GenerationPort(Protocol):
-    """生成端口；最终失败抛 GenerationFailure（由 GenerationService 实现）。"""
+    """生成端口；最终失败抛 GenerationFailure（由 GenerationService 实现）。
 
-    def stream(self, *, user_id, query, context_pack, history) -> Iterator[GenerationDelta]: ...
+    返回值必须是生成器：SSE 消费方放弃时对其调用 ``close()`` 级联中止
+    网关侧供应商流。
+    """
+
+    def stream(
+        self, *, user_id, query, context_pack, history
+    ) -> Generator[GenerationDelta, None, None]: ...
 
 
 class CitationPort(Protocol):
@@ -203,7 +209,7 @@ class AnswerService:
     # ------------------------------------------------------------------
     # 生成与终态收敛
     # ------------------------------------------------------------------
-    def stream_generation(self, bundle: EvidenceBundle) -> Iterator[GenerationDelta]:
+    def stream_generation(self, bundle: EvidenceBundle) -> Generator[GenerationDelta, None, None]:
         """流式生成（仅网关执行超时与重试；最终失败抛 GenerationFailure）。"""
         if self.generation is None:
             raise GenerationFailure()

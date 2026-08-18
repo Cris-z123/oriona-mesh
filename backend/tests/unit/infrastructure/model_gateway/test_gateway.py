@@ -448,3 +448,65 @@ class TestCallStream:
         with pytest.raises(GatewayError) as exc:
             self._stream(service, _call("generation"))
         assert exc.value.error_class == "network"
+
+    def test_stream_total_timeout_closes_provider_stream(self) -> None:
+        # P1 资源边界：总时长超时后网关必须停止后台拉取并关闭供应商生成器，
+        # 后台线程不得永久阻塞在满队列上持续消耗供应商连接/配额。
+        import threading as _threading
+
+        adapter = _FakeAdapter()
+        closed = _threading.Event()
+
+        def trickling_gen():
+            try:
+                yield "a"
+                while True:
+                    import time as _t
+
+                    _t.sleep(0.05)
+                    yield "b"
+            finally:
+                closed.set()
+
+        def chat_stream(call: SanitizedModelCall):
+            adapter._record("stream", call)
+            return trickling_gen()
+
+        adapter.chat_stream = chat_stream  # type: ignore[method-assign]
+        settings = _settings(generation_total_timeout_seconds=1, generation_max_retries=0)
+        service = ModelGatewayService(settings, adapter=adapter)
+        with pytest.raises(GatewayError) as exc:
+            self._stream(service, _call("generation"))
+        assert exc.value.error_class == "timeout"
+        # 超时后生产者应停止拉取并关闭生成器（等待上限内收敛）。
+        assert closed.wait(3.0), "provider stream must be closed after total timeout"
+
+    def test_stream_first_token_timeout_closes_provider_stream(self) -> None:
+        # P1 资源边界：首 token 超时后，残留的 _pull 线程在完成在途 next() 后
+        # 必须关闭供应商生成器（重试并发时不遗留旧供应商流）。
+        import threading as _threading
+
+        adapter = _FakeAdapter()
+        closed = _threading.Event()
+
+        def slow_gen():
+            try:
+                import time as _t
+
+                _t.sleep(1.5)
+                yield "late"
+            finally:
+                closed.set()
+
+        def chat_stream(call: SanitizedModelCall):
+            adapter._record("stream", call)
+            return slow_gen()
+
+        adapter.chat_stream = chat_stream  # type: ignore[method-assign]
+        settings = _settings(generation_first_token_timeout_seconds=1, generation_max_retries=0)
+        service = ModelGatewayService(settings, adapter=adapter)
+        with pytest.raises(GatewayError) as exc:
+            self._stream(service, _call("generation"))
+        assert exc.value.error_class == "timeout"
+        # 在途 next()（约 1.5 秒）完成后，超时置位的停止信号必须触发流关闭。
+        assert closed.wait(4.0), "provider stream must be closed after first token timeout"
