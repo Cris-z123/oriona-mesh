@@ -336,18 +336,42 @@ class TestFullStackSmoke:
             # 与生产 deploy.sh 一致：基础设施镜像按缺失拉取（首次），应用镜像必须来自
             # _build_release_images 预置的 Release 同名镜像（--pull never）。
             _compose(
-                "up", "-d", "--no-build", "--pull", "missing", "--wait", "--wait-timeout", "300",
-                "postgres", "redis",
+                "up",
+                "-d",
+                "--no-build",
+                "--pull",
+                "missing",
+                "--wait",
+                "--wait-timeout",
+                "300",
+                "postgres",
+                "redis",
             )
             # one-off 迁移与生产同形态（run --rm --no-deps）；后续 up 应用服务时
             # depends_on 会再次自动补跑幂等迁移，并验证迁移后基础设施仍健康存活。
             _compose("run", "--rm", "--no-deps", "--pull", "never", "migrate")
             _compose(
-                "up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "300",
-                "api", "worker", "frontend",
+                "up",
+                "-d",
+                "--no-build",
+                "--pull",
+                "never",
+                "--wait",
+                "--wait-timeout",
+                "300",
+                "api",
+                "worker",
+                "frontend",
             )
             _compose(
-                "up", "-d", "--no-build", "--pull", "missing", "--wait", "--wait-timeout", "300",
+                "up",
+                "-d",
+                "--no-build",
+                "--pull",
+                "missing",
+                "--wait",
+                "--wait-timeout",
+                "300",
                 "nginx",
             )
 
