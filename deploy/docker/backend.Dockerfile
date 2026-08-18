@@ -10,10 +10,10 @@
 #   见 deploy/compose/compose.yaml / T099）。
 
 # ---------- 构建阶段：锁定安装依赖到独立 .venv ----------
-# uv 官方镜像（ghcr.io/astral-sh/uv:0.12.3）只含 /uv 二进制；按官方模式复制二进制，
-# 固定 0.12.3（与本地工具链、CI 的 astral-sh/setup-uv 一致，可复现构建）。
+# 固定 uv 0.12.3（与本地工具链、CI 的 astral-sh/setup-uv 一致）。从 PyPI 安装避免构建阶段
+# 依赖 GHCR；服务器只接收 GitHub Release 的最终镜像，不执行此构建步骤。
 FROM python:3.12-slim AS builder
-COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /usr/local/bin/uv
+RUN pip install --no-cache-dir uv==0.12.3
 ENV UV_PYTHON_DOWNLOADS=never
 # 包索引可在构建时覆盖（国内服务器可用 TUNA 等镜像）；默认官方 PyPI。
 ARG UV_INDEX_URL=https://pypi.org/simple

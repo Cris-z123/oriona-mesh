@@ -1,10 +1,4 @@
-# 镜像构建与漏洞扫描门禁（T103）。
-#
-# 质量契约（quickstart「质量与交付验证」）：
-# - PR 与 main / 正式 Git tag（v*）推送均构建 backend/frontend 双镜像并执行
-#   Trivy 漏洞扫描（HIGH/CRITICAL 导致失败，exit-code=1）——合并前门禁即含镜像；
-# - 镜像不发布到 GHCR：部署为服务器本地构建（scripts/deploy.sh，方案 A，
-#   不依赖 GHCR/GitHub 网络），本工作流仅充当镜像质量门禁。
+# PR/main 保持镜像构建与 Trivy 门禁；正式 v* tag 额外发布可导入的 linux/amd64 镜像包。
 name: Images
 
 on:
@@ -14,71 +8,129 @@ on:
     tags: ["v*"]
 
 concurrency:
-  # 同一 ref 并发推送/更新时取消旧 run；PR 与 main 各自独立。
   group: image-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  IMAGE_TAG: sha-${{ github.sha }}
+
 jobs:
   build-and-scan:
     name: Build & scan ${{ matrix.service }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # upload-artifact@v4 上传工件需要 actions: write；仅此 job 需要，workflow 级仍为 contents: read。
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - service: backend
             dockerfile: deploy/docker/backend.Dockerfile
+            build_args: ""
           - service: frontend
             dockerfile: deploy/docker/frontend.Dockerfile
+            # 构建时常量，编译进前端包；后端不需要。
+            build_args: NEXT_PUBLIC_API_BASE_URL=/v1
     steps:
       - uses: actions/checkout@v4
-
-      # 仅用于本地构建产物命名（GHCR 路径小写约束无实际发布语义）。
-      - name: Lowercase image base
-        run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-
       - uses: docker/setup-buildx-action@v3
 
-      - name: Image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_BASE }}-${{ matrix.service }}
-          tags: |
-            # 不可变 sha-<full-sha> 本地命名，供 Trivy 扫描引用。
-            type=sha,format=long,prefix=sha-
-          flavor: |
-            latest=false
-
-      - name: Build and load
+      - name: Build and load linux/amd64 image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          # 不推送；load 到 runner 本地 docker 仓库供 Trivy 扫描。
+          platforms: linux/amd64
           load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: orionamesh-${{ matrix.service }}:${{ env.IMAGE_TAG }}
+          build-args: ${{ matrix.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Vulnerability scan (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ env.IMAGE_BASE }}-${{ matrix.service }}:sha-${{ github.sha }}
-          # 只做漏洞扫描（--scanners vuln，T126-T131 后 Trivy 步骤失败根因）：
-          # 镜像内硬编码的开发默认数据库连接串（app/core/settings.py
-          # _DEFAULT_DATABASE_URL = postgresql+psycopg://orionamesh:orionamesh@localhost）
-          # 命中 trivy 内置 postgres secret 规则；secret 结果不受 --severity 过滤
-          # 影响、发现即配合 exit-code=1 失败，且 backend/frontend 双镜像同时命中。
-          # 部署环境密钥由 assert_startup_config 强制注入（镜像内默认值不可用），
-          # 不做镜像内 secret 扫描。
+          image-ref: orionamesh-${{ matrix.service }}:${{ env.IMAGE_TAG }}
           scanners: vuln
           format: table
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+
+      - name: Export release image
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p release-images
+          docker image save --output release-images/${{ matrix.service }}.tar \
+            orionamesh-${{ matrix.service }}:${{ env.IMAGE_TAG }}
+
+      - name: Upload release image
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-image
+          path: release-images/${{ matrix.service }}.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Package GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-image"
+          path: release/images
+          merge-multiple: true
+
+      - name: Package immutable deployment bundle
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          bundle="orionamesh-release-${RELEASE_TAG}"
+          mkdir -p "$bundle/images" "$bundle/deploy/compose" "$bundle/deploy/nginx" "$bundle/scripts"
+          mv release/images/backend.tar "$bundle/images/backend.tar"
+          mv release/images/frontend.tar "$bundle/images/frontend.tar"
+          cat > "$bundle/release.env" <<EOF
+          BACKEND_IMAGE=orionamesh-backend:sha-${GITHUB_SHA}
+          FRONTEND_IMAGE=orionamesh-frontend:sha-${GITHUB_SHA}
+          EOF
+          cp deploy/compose/compose.yaml deploy/compose/.env.example "$bundle/deploy/compose/"
+          cp deploy/nginx/nginx.conf "$bundle/deploy/nginx/"
+          cp scripts/deploy.sh "$bundle/scripts/"
+          chmod +x "$bundle/scripts/deploy.sh"
+          (
+            cd "$bundle"
+            sha256sum images/backend.tar images/frontend.tar release.env \
+              deploy/compose/compose.yaml deploy/compose/.env.example \
+              deploy/nginx/nginx.conf scripts/deploy.sh > release.files.sha256
+          )
+          tar -czf "${bundle}.tar.gz" "$bundle"
+          sha256sum "${bundle}.tar.gz" > "${bundle}.tar.gz.sha256"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          bundle="orionamesh-release-${RELEASE_TAG}.tar.gz"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$bundle" "${bundle}.sha256" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$bundle" "${bundle}.sha256" --generate-notes
+          fi

@@ -207,13 +207,13 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 - [x] T096 [P] 按 Quickstart 固定变量名创建认证、限流、持久卷/解析/并发、processing lease、upload pending 超时、幂等及模型网关环境模板；认证只包含必填且至少 32 字节的 `AUTH_JWT_SECRET_KEY`，不得提供算法/TTL 覆盖变量；模型包含必填 `MODEL_GATEWAY_ENDPOINT`、`MODEL_GATEWAY_PROVIDER=openai-compatible`，Query Rewrite/Generation 必填、Embedding 默认、Reranker 空值禁用，endpoint 示例使用 HTTPS（本机回环开发例外可用 HTTP），非法认证配置、缺失/不允许的 HTTP endpoint 或未知 provider 拒绝就绪；模板按 quickstart 环境契约提供 `backend/.env.local.example`（本地开发）与 `backend/.env.test.example`（自动化测试），部署环境不提供仓库内模板、由 Docker/CI 注入，于 `.env.example`、`backend/.env.local.example`、`backend/.env.test.example`、`frontend/.env.example`
 - [x] T097 创建后端多阶段 Docker 镜像并用 uv 锁定安装 PyMuPDF、python-docx、markdown-it-py、charset-normalizer 等依赖于 `deploy/docker/backend.Dockerfile`
 - [x] T098 [P] 创建前端多阶段 Docker 镜像并用根 pnpm 锁文件锁定安装与构建于 `deploy/docker/frontend.Dockerfile`
-- [x] T099 创建 PostgreSQL、Redis、单次串行 `alembic upgrade head` 的 one-off migrate、后端 API、Celery worker 和前端的 Docker Compose 编排，为 API/worker 共同挂载 `/data/orionamesh` 命名持久卷并验证共用网关/限流配置；API/worker 使用同一 `BACKEND_IMAGE` 且启动命令不得自动迁移，前端使用 `FRONTEND_IMAGE`，本地可回退到 build，于 `deploy/compose/compose.yaml`
+- [x] T099 创建 PostgreSQL、Redis、单次串行 `alembic upgrade head` 的 one-off migrate、后端 API、Celery worker 和前端的 Docker Compose 编排，为 API/worker 共同挂载 `/data/orionamesh` 命名持久卷并验证共用网关/限流配置；T133 修订为 API/worker 使用同一必填 `BACKEND_IMAGE`、前端使用必填 `FRONTEND_IMAGE`，服务器不再回退到 build，于 `deploy/compose/compose.yaml`
 - [x] T100 [P] 创建后端质量、迁移（含 last_login 可空、Citation 非空/唯一、delete_cleanup、知识库 `active/deleting/delete_failed` 与 `delete_error_code=20015` 配对约束）、扩展、OpenAPI、SSE、解析依赖、本地卷、HS256 认证配置、限流和模型网关必填 endpoint/评分契约校验脚本于 `scripts/check-backend.sh`、`scripts/verify-contracts.sh`
 - [x] T101 [P] 创建前端 pnpm lint、format、类型检查、单测和端到端校验脚本于 `scripts/check-frontend.sh`
 - [x] T102 创建 GitHub Actions PR CI：uv/根 pnpm 锁定安装、Ruff、Pyright、ESLint、Prettier、类型检查、单元/集成/契约/架构测试、迁移与契约校验于 `.github/workflows/ci.yml`
-- [x] T103 创建 GitHub Actions 双镜像构建与 Trivy 漏洞扫描门禁工作流（HIGH/CRITICAL 即失败；镜像不发布 GHCR——部署为服务器本地构建，见 `scripts/deploy.sh` 与 `deploy/compose/compose.yaml`），于 `.github/workflows/image.yml`
-- [x] T104 [P] 编写 Docker Compose 健康/就绪、HS256 密钥缺失/过短、模型 endpoint 缺失/非法/非回环 HTTP 时拒绝就绪且 HTTPS 与本机回环 HTTP 可用、one-off 迁移成功后才切换 API/worker、迁移失败保持旧容器、API/worker 不自动迁移、容器重建后持久卷保留、锁文件不可变安装及配置失败冒烟测试于 `backend/tests/integration/test_delivery_stack.py`
-- [x] T105 运行 A6 工具链、Compose、持久卷重建、阶段编排/fencing/删除接管、CI workflow、可信代理限流/出口安全门禁与双镜像构建验证；冻结环境变量、GHCR 镜像命名、不可变 SHA 发布、`BACKEND_IMAGE`/`FRONTEND_IMAGE` 成对回滚命令，以及“串行 one-off Alembic 成功后才切换容器、API/worker 不自动迁移、镜像回滚不自动降级数据库、破坏性迁移先人工备份”说明于 `README.md`、`specs/001-orionamesh-rag-mvp/quickstart.md`（部署方式于 T132 变更为服务器本地构建，GHCR 发布与成对 SHA 回滚说明已同步更新）
+- [x] T103 创建 GitHub Actions 双镜像构建与 Trivy 漏洞扫描门禁工作流（HIGH/CRITICAL 即失败）；正式 tag 的镜像归档与 GitHub Release 交付由 T133 修订，于 `.github/workflows/image.yml`
+- [x] T104 [P] 编写 Docker Compose 健康/就绪、HS256 密钥缺失/过短、模型 endpoint 缺失/非法/非回环 HTTP 时拒绝就绪且 HTTPS 与本机回环 HTTP 可用、one-off 迁移成功后才切换 API/worker、迁移失败保持旧容器、API/worker 不自动迁移、容器重建后持久卷保留、锁文件不可变安装、GitHub Release 打包与仅 Nginx 公开端口静态契约测试于 `backend/tests/integration/test_delivery_stack.py`
+- [x] T105 运行 A6 工具链、Compose、持久卷重建、阶段编排/fencing/删除接管、CI workflow、可信代理限流/出口安全门禁与双镜像构建验证；GitHub Release 实际产物与服务器首次部署验收由未完成的 T133a/T133b 独立记录，保留“串行 one-off Alembic 成功后才切换容器、API/worker 不自动迁移、镜像回滚不自动降级数据库、破坏性迁移先人工备份”原则。
 
 **检查点**：uv、pnpm、全部质量工具、Docker/Compose、本地持久卷、CI/CD、可配置模型网关、Redis 限流与出口安全已验证；T105 后才允许前端 UI。
 
@@ -285,7 +285,7 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ## 阶段 11：文档与跨切面收尾
 
-- [ ] T122 [P] 更新开发环境、uv/根 pnpm 锁文件、持久卷、解析器、处理并发、上传幂等、可信代理限流、模型网关、服务器本地构建部署与回滚（`scripts/deploy.sh`，非 GHCR）说明于 `README.md`
+- [ ] T122 [P] 更新开发环境、uv/根 pnpm 锁文件、持久卷、解析器、处理并发、上传幂等、可信代理限流、模型网关、GitHub Release 镜像归档部署与回滚（`scripts/deploy.sh`，服务器不构建、不访问 GHCR）说明于 `README.md`
 - [ ] T123 [P] 执行并记录快速验证清单的最终结果于 `specs/001-orionamesh-rag-mvp/quickstart.md`
 - [ ] T124 审查普通日志、模型调用审计、响应、SSE 和引用快照，确认不含 password/token/secret_key、请求/响应 payload、提示词、问题、片段、文件名、请求头或已删除原始资料于 `backend/app/core/logging.py`、`backend/app/infrastructure/model_gateway/audit.py`、`frontend/src/lib/logging/server.ts`、`backend/tests/integration/test_backend_gate.py`
 - [ ] T125 运行全部确定性后端与前端测试、迁移、OpenAPI/模型出口契约、上传超时接管、阶段编排、写入 fencing、有界资料/知识库删除、删除失败墓碑与下一轮清理历史、解析安全、处理并发、持久卷、架构边界、限流/出口安全、质量工具与 Compose 验证，并记录结果于 `specs/001-orionamesh-rag-mvp/quickstart.md`
@@ -301,15 +301,25 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 - [x] T130 [P] 修复限流中间件忽略注入 `Settings`：`_user_fingerprint` 改用 `self.settings.auth_jwt_secret_key_value` 验签（修复前用全局 `get_settings()`，自定义应用/测试配置下合法用户 token 解码失败、静默跳过用户级限流），于 `backend/app/api/middleware/rate_limit.py`、`backend/tests/unit/infrastructure/rate_limit/test_middleware.py`
 - [x] T131 [P] 修复限流中间件回放截断请求体：请求体超过 64KB 小 JSON 上限时明确拒绝 `413/10003`，不再把截断内容回注给下游（修复前下游收到被篡改的截断 body），于 `backend/app/api/middleware/rate_limit.py`、`backend/tests/unit/infrastructure/rate_limit/test_middleware.py`
 
-## 部署方式变更（T132）
+## 部署方式变更（T132–T133）
 
-- [x] T132 [P] 变更部署方式为方案 A 服务器本地构建（腾讯云服务器到 GHCR 网络不通）：
-  `scripts/deploy.sh` 一键构建启动（`docker compose up -d --build`）与 update（`git pull --ff-only`）；
-  compose 双模式（省略 `BACKEND_IMAGE`/`FRONTEND_IMAGE` 即本地构建，`UV_INDEX_URL`/`NPM_REGISTRY`
-  可指向 PyPI/npm 镜像源）；`image.yml` 去掉 GHCR 发布（移除 login/`packages: write`/push），保留
-  双镜像构建 + Trivy 漏洞扫描门禁（HIGH/CRITICAL 即失败）；回滚改为服务器 `git checkout` 上一
-  已验证 commit 后重建。同步冻结契约于 `quickstart.md`、`README.md`、`docs/OrionaMesh.md`，
-  追加修订说明于 `specs/001-orionamesh-rag-mvp/research.md`（决策 38）
+- [x] T132 [P] 历史方案：腾讯云服务器本地构建，已被 T133 取代。
+- [ ] T133 [P] 变更为 GitHub Release 镜像归档交付：`image.yml` 在 PR/main 保留 `linux/amd64`
+  双镜像构建与 Trivy HIGH/CRITICAL 门禁，在正式 `v*` tag 导出 backend/frontend 镜像 tar、镜像引用
+  清单、Compose、Nginx 和部署脚本，生成 SHA-256 并发布公开 GitHub Release；Compose 强制完整
+  `BACKEND_IMAGE`/`FRONTEND_IMAGE`、不再含服务器 `build`、仅 Nginx 发布 80、PostgreSQL/Redis/API/
+  worker/前端均不暴露主机端口；`scripts/deploy.sh` 校验后的发布包通过 `docker image load` 导入应用镜像，
+  先执行 one-off migrate，成功后才以 `--no-build --pull never` 更新服务；回滚导入上一 Release，不自动降级
+  数据库。同步 `quickstart.md`、`README.md`、`docs/OrionaMesh.md` 与交付栈测试。
+- [ ] T133a [T133] 推送临时正式 `v*` tag，确认 GitHub Actions 成功创建公开 Release；下载资产并验证外层
+  `.sha256`、包内 `release.files.sha256`、两份镜像 tar、`release.env` 和运行时配置完整，记录 run URL 与
+  SHA-256 于 `quickstart.md`。
+- [ ] T133b [T133] 在腾讯云 Ubuntu x86_64 首次部署：以无业务数据的旧 Compose 栈释放 80 端口，创建
+  `0600` 的 `/opt/orionamesh/.env`，运行发布包内 `scripts/deploy.sh`；验证仅 80 监听、`docker compose ps`
+  全部就绪、PostgreSQL 的 `vector/pg_trgm/pgcrypto` 扩展、Redis 认证、`/` 反向代理和 Compose 内 API `/ready`，
+  并用 `docker network inspect` 核对 Compose 网络实际子网落在 `RATE_LIMIT_TRUSTED_PROXY_CIDRS` 内
+  （不匹配时用实际子网更新 `.env` 后重新部署）。
+  再以第二个 tag 升级并以首个 tag 回滚；确认两次均不发生应用镜像构建、不会自动数据库降级且资料持久卷保留。
 
 ---
 
