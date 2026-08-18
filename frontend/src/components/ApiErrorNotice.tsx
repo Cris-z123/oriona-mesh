@@ -1,19 +1,11 @@
 import type { ApiError } from "@/lib/api/client";
 
+import { ErrorState } from "@/components/ui/error-state";
+
 /**
- * 统一业务错误提示（FR-021）：展示服务端返回的 msg 与 trace_id，
- * 便于用户反馈时提供可追踪标识；不复制任何业务错误码判断。
+ * 统一业务错误提示（FR-021）：委托给 `ErrorState` 呈现服务端 msg 与 trace_id。
+ * 保留本组件以兼容阶段 8 既有调用方；新组件直接使用 `ErrorState`。
  */
 export function ApiErrorNotice({ error }: { error: ApiError }) {
-  return (
-    <div
-      role="alert"
-      className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-    >
-      <p>{error.msg}</p>
-      {error.traceId ? (
-        <p className="mt-0.5 text-xs opacity-70">trace_id: {error.traceId}</p>
-      ) : null}
-    </div>
-  );
+  return <ErrorState error={error} />;
 }

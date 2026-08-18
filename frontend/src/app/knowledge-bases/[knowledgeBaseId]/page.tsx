@@ -1,27 +1,39 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { useState } from "react";
 
+import { AppShell } from "@/components/app-shell/AppShell";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { DocumentList } from "@/features/documents/DocumentList";
+import { queryKeys } from "@/features/documents/queries";
 import { UploadPanel } from "@/features/documents/UploadPanel";
 
 export default function KnowledgeBaseDocumentsPage() {
   const params = useParams<{ knowledgeBaseId: string }>();
   const knowledgeBaseId = params.knowledgeBaseId;
-  const [refreshKey, setRefreshKey] = useState(0);
+  const queryClient = useQueryClient();
+
+  /** 上传成功（202 已接受）后精确失效该知识库的资料子树，列表重取当前页。 */
+  const onUploaded = () => {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.documents(knowledgeBaseId),
+      refetchType: "active",
+    });
+  };
 
   return (
     <RequireAuth>
-      <main className="mx-auto max-w-4xl space-y-6 p-4">
-        <h1 className="text-xl font-semibold">资料</h1>
-        <UploadPanel
-          knowledgeBaseId={knowledgeBaseId}
-          onUploaded={() => setRefreshKey((k) => k + 1)}
-        />
-        <DocumentList key={refreshKey} knowledgeBaseId={knowledgeBaseId} />
-      </main>
+      <AppShell contextRail={<p className="text-sm text-muted-foreground">当前知识库资料</p>}>
+        <div className="space-y-6">
+          <header>
+            <h1 className="font-display text-2xl font-semibold">资料</h1>
+            <p className="text-sm text-muted-foreground">上传并跟踪资料处理状态</p>
+          </header>
+          <UploadPanel knowledgeBaseId={knowledgeBaseId} onUploaded={onUploaded} />
+          <DocumentList knowledgeBaseId={knowledgeBaseId} />
+        </div>
+      </AppShell>
     </RequireAuth>
   );
 }

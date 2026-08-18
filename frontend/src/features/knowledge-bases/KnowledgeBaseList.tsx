@@ -1,94 +1,83 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
 
-import { ApiErrorNotice } from "@/components/ApiErrorNotice";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  ApiError,
-  asApiError,
-  createKnowledgeBase,
-  deleteKnowledgeBase,
-  listKnowledgeBases,
-  updateKnowledgeBase,
-} from "@/lib/api/client";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { KnowledgeBase } from "@/lib/api/types";
+import {
+  knowledgeBaseQueryKeys,
+  useCreateKnowledgeBase,
+  useDeleteKnowledgeBase,
+  useKnowledgeBaseList,
+  useUpdateKnowledgeBase,
+} from "@/features/knowledge-bases/queries";
 
 const PAGE_SIZE = 20;
 
 /**
- * 知识库列表（T110/FR-003）：页码列表、创建、编辑与删除。
+ * 知识库列表（T110/T138/FR-003）：页码列表、创建、编辑与删除。
+ * - 列表数据由 TanStack Query 管理；写成功后精确失效并按需重取当前页；
  * - delete_failed/20015 仅显示最小“删除未完成”墓碑与 retry_delete；
  * - 展示内容与操作全部来自服务端 DTO（name/description/allowed_actions），不自行推导。
  */
 export function KnowledgeBaseList() {
-  const [items, setItems] = useState<KnowledgeBase[]>([]);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState<ApiError | null>(null);
-  const [loading, setLoading] = useState(true);
 
   const [createName, setCreateName] = useState("");
   const [createDescription, setCreateDescription] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
-  const load = useCallback(async (targetPage: number) => {
-    setLoading(true);
-    try {
-      const result = await listKnowledgeBases(targetPage, PAGE_SIZE);
-      setItems(result.items);
-      setTotal(result.total);
-      setError(null);
-    } catch (err) {
-      setError(asApiError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const list = useKnowledgeBaseList(page, PAGE_SIZE);
+  const create = useCreateKnowledgeBase();
+  const update = useUpdateKnowledgeBase();
+  const remove = useDeleteKnowledgeBase();
 
-  useEffect(() => {
-    // 延迟到宏任务：load 同步前缀含 setLoading，react-hooks/set-state-in-effect
-    // 要求 effect 内不得同步 setState；加载由本 effect 统一触发，避免重复请求
-    const timer = window.setTimeout(() => {
-      void load(page);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load, page, reloadKey]);
+  const items = list.data?.items ?? [];
+  const total = list.data?.total ?? 0;
+  const mutationError = create.error ?? update.error ?? remove.error;
+  const error = list.error ?? mutationError;
+
+  /** 写成功后重取当前活动页（非末页回退场景）。 */
+  const refreshList = async () => {
+    await queryClient.refetchQueries({ queryKey: knowledgeBaseQueryKeys.all() });
+  };
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError(null);
     try {
-      await createKnowledgeBase({
+      await create.mutateAsync({
         name: createName.trim(),
         ...(createDescription.trim() !== "" ? { description: createDescription.trim() } : {}),
       });
       setCreateName("");
       setCreateDescription("");
       setPage(1);
-      setReloadKey((k) => k + 1);
-    } catch (err) {
-      setError(asApiError(err));
+      await refreshList();
+    } catch {
+      // 错误已由 mutation.error 呈现
     }
   };
 
   const onDelete = async (kb: KnowledgeBase) => {
-    setError(null);
     try {
-      await deleteKnowledgeBase(kb.id);
-      // 末页最后一项删除后回退一页，避免停留在空页
+      await remove.mutateAsync(kb.id);
+      // 末页最后一项删除后回退一页（键变更后按挂载重取过期数据）
       if (items.length === 1 && page > 1) {
         setPage((p) => p - 1);
       } else {
-        setReloadKey((k) => k + 1);
+        await refreshList();
       }
-    } catch (err) {
-      setError(asApiError(err));
+    } catch {
+      // 错误已由 mutation.error 呈现
     }
   };
 
@@ -99,16 +88,18 @@ export function KnowledgeBaseList() {
   };
 
   const onSaveEdit = async (kb: KnowledgeBase) => {
-    setError(null);
     try {
-      await updateKnowledgeBase(kb.id, {
-        name: editName.trim(),
-        ...(editDescription.trim() !== "" ? { description: editDescription.trim() } : {}),
+      await update.mutateAsync({
+        id: kb.id,
+        input: {
+          name: editName.trim(),
+          ...(editDescription.trim() !== "" ? { description: editDescription.trim() } : {}),
+        },
       });
       setEditingId(null);
-      setReloadKey((k) => k + 1);
-    } catch (err) {
-      setError(asApiError(err));
+      await refreshList();
+    } catch {
+      // 错误已由 mutation.error 呈现
     }
   };
 
@@ -116,7 +107,7 @@ export function KnowledgeBaseList() {
 
   return (
     <div className="space-y-4">
-      {error ? <ApiErrorNotice error={error} /> : null}
+      {error ? <ErrorState error={error} /> : null}
 
       <form onSubmit={onCreate} className="flex flex-wrap items-end gap-2">
         <div className="space-y-1.5">
@@ -138,86 +129,98 @@ export function KnowledgeBaseList() {
             maxLength={1000}
           />
         </div>
-        <Button type="submit" disabled={loading || createName.trim() === ""}>
+        <Button type="submit" disabled={create.isPending || createName.trim() === ""}>
           创建
         </Button>
       </form>
 
-      <ul className="space-y-2">
-        {items.map((kb) =>
-          kb.status === "delete_failed" ? (
-            <li
-              key={kb.id}
-              className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="font-medium text-destructive">删除未完成</p>
-                  <p className="text-sm text-muted-foreground">
-                    知识库删除未完成，请重试删除（20015）
-                  </p>
-                </div>
-                <Button variant="destructive" onClick={() => void onDelete(kb)}>
-                  重试删除
-                </Button>
-              </div>
+      {list.isLoading ? (
+        <ul className="space-y-2" aria-label="加载中">
+          {[0, 1, 2].map((i) => (
+            <li key={i}>
+              <Skeleton className="h-14 w-full" />
             </li>
-          ) : editingId === kb.id ? (
-            <li key={kb.id} className="rounded-md border px-3 py-2">
-              <div className="space-y-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor={`edit-name-${kb.id}`}>名称</Label>
-                  <Input
-                    id={`edit-name-${kb.id}`}
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    maxLength={120}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor={`edit-desc-${kb.id}`}>描述</Label>
-                  <Input
-                    id={`edit-desc-${kb.id}`}
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    maxLength={1000}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={() => void onSaveEdit(kb)}>保存</Button>
-                  <Button variant="ghost" onClick={() => setEditingId(null)}>
-                    取消
-                  </Button>
-                </div>
-              </div>
-            </li>
-          ) : (
-            <li key={kb.id} className="rounded-md border px-3 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{kb.name}</p>
-                  {kb.description ? (
-                    <p className="truncate text-sm text-muted-foreground">{kb.description}</p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button variant="outline" onClick={() => startEdit(kb)}>
-                    编辑
-                  </Button>
+          ))}
+        </ul>
+      ) : items.length === 0 ? (
+        <EmptyState title="暂无知识库" description="创建第一个知识库开始整理资料" />
+      ) : (
+        <ul className="space-y-2" aria-busy={list.isFetching || undefined}>
+          {items.map((kb) =>
+            kb.status === "delete_failed" ? (
+              <li
+                key={kb.id}
+                className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-destructive">删除未完成</p>
+                    <p className="text-sm text-muted-foreground">
+                      知识库删除未完成，请重试删除（20015）
+                    </p>
+                  </div>
                   <Button variant="destructive" onClick={() => void onDelete(kb)}>
-                    删除{kb.name ?? ""}
+                    重试删除
                   </Button>
                 </div>
-              </div>
-            </li>
-          )
-        )}
-      </ul>
+              </li>
+            ) : editingId === kb.id ? (
+              <li key={kb.id} className="rounded-md border px-3 py-2">
+                <div className="space-y-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`edit-name-${kb.id}`}>名称</Label>
+                    <Input
+                      id={`edit-name-${kb.id}`}
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      maxLength={120}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`edit-desc-${kb.id}`}>描述</Label>
+                    <Input
+                      id={`edit-desc-${kb.id}`}
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      maxLength={1000}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={() => void onSaveEdit(kb)}>保存</Button>
+                    <Button variant="ghost" onClick={() => setEditingId(null)}>
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            ) : (
+              <li key={kb.id} className="rounded-md border px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{kb.name}</p>
+                    {kb.description ? (
+                      <p className="truncate text-sm text-muted-foreground">{kb.description}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button variant="outline" onClick={() => startEdit(kb)}>
+                      编辑
+                    </Button>
+                    <Button variant="destructive" onClick={() => void onDelete(kb)}>
+                      删除{kb.name ?? ""}
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            )
+          )}
+        </ul>
+      )}
 
       <div className="flex items-center gap-2 text-sm">
         <Button
           variant="outline"
-          disabled={page <= 1 || loading}
+          disabled={page <= 1 || list.isFetching}
           onClick={() => setPage((p) => p - 1)}
         >
           上一页
@@ -227,7 +230,7 @@ export function KnowledgeBaseList() {
         </span>
         <Button
           variant="outline"
-          disabled={page >= totalPages || loading}
+          disabled={page >= totalPages || list.isFetching}
           onClick={() => setPage((p) => p + 1)}
         >
           下一页

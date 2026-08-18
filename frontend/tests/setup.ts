@@ -7,3 +7,22 @@ import { afterEach } from "vitest";
 afterEach(() => {
   cleanup();
 });
+
+/**
+ * jsdom 未实现 matchMedia：next-themes（系统主题解析）与 prefers-reduced-motion
+ * 相关代码需要稳定的可编程实现（ui-design §2.2/§7）。测试中默认匹配 false，
+ * 需要模拟系统偏好时在用例内覆写 `window.matchMedia`。
+ */
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: (query: string): MediaQueryList => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+});

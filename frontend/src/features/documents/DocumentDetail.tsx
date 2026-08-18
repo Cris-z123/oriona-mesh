@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { ApiErrorNotice } from "@/components/ApiErrorNotice";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ApiError, asApiError, deleteDocument, getDocument } from "@/lib/api/client";
-import type { Document } from "@/lib/api/types";
-import { isInFlight, isTombstone, statusLabel } from "@/features/documents/status";
+import { ErrorState } from "@/components/ui/error-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { queryKeys, useDeleteDocument, useDocumentDetail } from "@/features/documents/queries";
+import { isTombstone, statusLabel } from "@/features/documents/status";
 
 /**
- * 资料详情（T112/FR-005/010/011）：完整 DTO 渲染与处理中轮询；
- * 异步失败以 HTTP 200 + error_code/error_message 表达；allowed_actions 来自服务端。
+ * 资料详情（T112/T138/FR-005/010/011）：完整 DTO 渲染与 DTO 驱动轮询。
+ * 异步失败以 HTTP 200 + error_code/error_message 表达；allowed_actions 来自服务端；
+ * 删除成功后重取详情，使删除收敛状态或 404 成为界面真相。
  */
 export function DocumentDetail({
   knowledgeBaseId,
@@ -23,53 +25,34 @@ export function DocumentDetail({
   pollIntervalMs?: number;
   onClose?: () => void;
 }) {
-  const [doc, setDoc] = useState<Document | null>(null);
-  const [error, setError] = useState<ApiError | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const result = await getDocument(knowledgeBaseId, documentId);
-      setDoc(result);
-      setError(null);
-    } catch (err) {
-      setError(asApiError(err));
-    }
-  }, [knowledgeBaseId, documentId]);
-
-  useEffect(() => {
-    // 延迟到宏任务：react-hooks/set-state-in-effect 要求 effect 内不得同步 setState
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
-
-  useEffect(() => {
-    if (doc && isInFlight(doc.status)) {
-      const timer = setTimeout(() => {
-        void load();
-      }, pollIntervalMs);
-      return () => clearTimeout(timer);
-    }
-  }, [doc, load, pollIntervalMs]);
+  const queryClient = useQueryClient();
+  const detail = useDocumentDetail(knowledgeBaseId, documentId, { pollIntervalMs });
+  const deleteMutation = useDeleteDocument();
+  const doc = detail.data;
 
   const onDelete = async () => {
     if (!doc) return;
-    setError(null);
     try {
-      await deleteDocument(knowledgeBaseId, doc.id);
-      await load();
-    } catch (err) {
-      setError(asApiError(err));
+      await deleteMutation.mutateAsync({ knowledgeBaseId, documentId: doc.id });
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.documentDetail(knowledgeBaseId, doc.id),
+      });
+    } catch {
+      // 错误已由 mutation.error 呈现
     }
   };
 
-  if (error && !doc) return <ApiErrorNotice error={error} />;
-  if (!doc) return null;
+  if (detail.error && !doc) return <ErrorState error={detail.error} />;
+  if (!doc) {
+    if (detail.isLoading) return <Skeleton className="h-40 w-full" aria-label="加载中" />;
+    return null;
+  }
+
+  const error = detail.error ?? deleteMutation.error;
 
   return (
     <section aria-label="资料详情" className="space-y-2 rounded-md border px-3 py-2">
-      {error ? <ApiErrorNotice error={error} /> : null}
+      {error ? <ErrorState error={error} /> : null}
       <div className="flex items-center justify-between gap-2">
         <h3 className="truncate font-medium">{doc.filename}</h3>
         <div className="flex shrink-0 gap-2">
@@ -95,7 +78,11 @@ export function DocumentDetail({
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
         <div>
           <dt className="text-muted-foreground">状态</dt>
-          <dd>{statusLabel(doc.status)}</dd>
+          <dd>
+            <Badge variant={isTombstone(doc) ? "destructive" : "secondary"}>
+              {statusLabel(doc.status)}
+            </Badge>
+          </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">当前阶段</dt>

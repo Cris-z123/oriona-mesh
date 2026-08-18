@@ -250,14 +250,14 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ### 先写测试
 
-- [ ] T134 [P] 编写主题令牌、应用壳、键盘导航、抽屉焦点回归和 `prefers-reduced-motion` 的组件测试于 `frontend/tests/component/ui-foundation.test.tsx`
-- [ ] T135 [P] 编写 Query Provider 的精确失效、非终态资料轮询停止、登出清空缓存及 Zustand 不保存服务端实体/令牌的单元测试于 `frontend/tests/unit/lib/query-client.test.ts`、`frontend/tests/unit/stores/ui-store.test.ts`
+- [x] T134 [P] 编写主题令牌、应用壳、键盘导航、抽屉焦点回归和 `prefers-reduced-motion` 的组件测试于 `frontend/tests/component/ui-foundation.test.tsx`（9 passed；Radix 1.1.x 模态语义以 aria-hidden 表达，焦点回归断言触发元素）
+- [x] T135 [P] 编写 Query Provider 的精确失效、非终态资料轮询停止、登出清空缓存及 Zustand 不保存服务端实体/令牌的单元测试于 `frontend/tests/unit/lib/query-client.test.ts`、`frontend/tests/unit/stores/ui-store.test.ts`（10 passed；失效以 `QueryState.isInvalidated` 断言）
 
 ### 前端实现
 
-- [ ] T136 配置并锁定 `@tanstack/react-query`、`zustand`、`next-themes`、`react-hook-form`、`zod` 和所需 Shadcn/UI 原语；实现语义 Tailwind/CSS 令牌、默认浅色与“夜间编辑桌”深色主题、Query Provider、Theme Provider 及登出缓存清理于 `frontend/package.json`、`pnpm-lock.yaml`、`frontend/src/app/layout.tsx`、`frontend/src/app/globals.css`、`frontend/src/lib/query-client.tsx`
-- [ ] T137 实现只保存导航折叠、引用抽屉和非敏感视图偏好的 Zustand UI store，以及桌面优先 `AppShell`、`WorkspaceNav`、`ContextRail`、`ThemeToggle`、`EmptyState`、`ErrorState` 和可访问 Shadcn/UI 基础组件于 `frontend/src/stores/ui-store.ts`、`frontend/src/components/app-shell/`、`frontend/src/components/ui/`
-- [ ] T138 将资料列表/详情的现有请求迁移到统一 Query 封装与 DTO 驱动的非终态轮询；保留 `delete_failed/20015` 最小墓碑、`allowed_actions` 和既有 API 错误映射，不得以 UI store 复制服务端实体或状态机，于 `frontend/src/features/documents/`、`frontend/src/features/knowledge-bases/`
+- [x] T136 配置并锁定 `@tanstack/react-query`（5.101）、`zustand`（5）、`next-themes`（0.4）、`react-hook-form`（7）、`zod`（4）和所需 Shadcn/UI 原语（Radix dialog/select/separator）；实现语义 Tailwind/CSS 令牌、默认浅色与“夜间编辑桌”深色主题、Query Provider（mutation 不重试/查询限重试/关窗口聚焦重取）、Theme Provider 及登出缓存清理于 `frontend/package.json`、`pnpm-lock.yaml`、`frontend/src/app/layout.tsx`、`frontend/src/app/globals.css`、`frontend/src/lib/query-client.tsx`
+- [x] T137 实现只保存导航折叠、引用抽屉和非敏感视图偏好的 Zustand UI store，以及桌面优先 `AppShell`、`WorkspaceNav`、`ContextRail`、`ThemeToggle`、`EmptyState`、`ErrorState` 和可访问 Shadcn/UI 基础组件（Badge/Select/Skeleton/Separator/Sheet）于 `frontend/src/stores/ui-store.ts`、`frontend/src/components/app-shell/`、`frontend/src/components/ui/`；AppShell 集成到知识库/资料/个人资料页，小视口导航移入可访问抽屉
+- [x] T138 将资料列表/详情的现有请求迁移到统一 Query 封装与 DTO 驱动的非终态轮询（`refetchInterval` 依 `isInFlight` 停止，`keepPreviousData` 保持翻页展示）；保留 `delete_failed/20015` 最小墓碑、`allowed_actions` 和既有 API 错误映射（`ErrorState` 为统一呈现，`ApiErrorNotice` 委托复用）；写成功后精确失效对应资源子树（`refetchType: "none"` + 组件按需重取，保留末页回退语义），UI store 不含任何服务端实体/令牌/错误码，于 `frontend/src/features/documents/queries.ts`、`frontend/src/features/documents/DocumentList.tsx`、`frontend/src/features/documents/DocumentDetail.tsx`、`frontend/src/features/knowledge-bases/queries.ts`、`frontend/src/features/knowledge-bases/KnowledgeBaseList.tsx`（US1 既有 20 个组件测试全部通过，业务边界未改变）
 
 **检查点**：共享 UI 基础与状态职责通过；默认浅色、深色切换和桌面高密度布局可用；现有 US1 业务边界未改变。
 
