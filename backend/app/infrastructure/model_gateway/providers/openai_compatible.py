@@ -13,7 +13,7 @@
 
 import json
 import math
-from collections.abc import Iterator
+from collections.abc import Generator
 from typing import Any
 
 from langchain_core.messages import HumanMessage
@@ -74,7 +74,7 @@ class OpenAICompatibleAdapter:
             return GenerationResult(content=content, finish_reason=reason)
         return QueryRewriteResult(rewritten_query=content)
 
-    def chat_stream(self, call: SanitizedModelCall) -> Iterator[str]:
+    def chat_stream(self, call: SanitizedModelCall) -> Generator[str, None, None]:
         self._require_passed(call)
         client = self._chat_client(call)
         for chunk in client.stream([HumanMessage(content=call.sanitized_content)]):
