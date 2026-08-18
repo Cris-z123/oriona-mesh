@@ -304,8 +304,8 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 ## 部署方式变更（T132–T133）
 
 - [x] T132 [P] 历史方案：腾讯云服务器本地构建，已被 T133 取代。
-- [x] T133 [P] 变更为 GitHub Release 镜像归档交付：`image.yml` 在 PR/main 保留 `linux/amd64`
-  双镜像构建与 Trivy HIGH/CRITICAL 门禁，在正式 `v*` tag 导出 backend/frontend 镜像 tar、镜像引用
+- [x] T133 [P] 变更为 GitHub Release 镜像归档交付：`image.yml` 在 PR 保留 `linux/amd64`
+  双镜像构建与 Trivy HIGH/CRITICAL 门禁（main 为受保护分支，仅 PR 合并，合并后不重复构建），在正式 `v*` tag 导出 backend/frontend 镜像 tar、镜像引用
   清单、Compose、Nginx 和部署脚本，生成 SHA-256 并发布公开 GitHub Release；Nginx bind mount 必须由
   部署脚本注入已安装配置的绝对宿主机路径，不得依赖相对路径；Compose 强制完整
   `BACKEND_IMAGE`/`FRONTEND_IMAGE`、不再含服务器 `build`、仅 Nginx 发布 80、PostgreSQL/Redis/API/

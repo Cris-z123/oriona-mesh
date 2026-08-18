@@ -139,9 +139,9 @@ GitHub Release，Compose 不包含 `build` 配置。
 
 ### 镜像门禁（GitHub Actions）
 
-- `image.yml` 在 PR/main/正式 Git tag（`v*`）构建 `linux/amd64` backend/frontend 双镜像并执行
+- `image.yml` 在 PR 与正式 Git tag（`v*`）构建 `linux/amd64` backend/frontend 双镜像并执行
   Trivy 漏洞扫描（HIGH/CRITICAL 即失败）；正式 tag 额外生成带 SHA-256 文件的 GitHub Release
-  归档，服务器仅导入归档中的应用镜像。
+  归档，服务器仅导入归档中的应用镜像。main 为受保护分支（仅 PR 合并），合并后不重复构建镜像。
 
 ### 升级与回滚
 
