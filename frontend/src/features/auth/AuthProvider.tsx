@@ -45,18 +45,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
-    getMe()
-      .then((me) => {
-        if (!cancelled) setMeResult({ status: "done", user: me });
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        // 会话已过期且无法恢复：清除本地会话，订阅回调会触发重定向
-        if (err instanceof ApiError && err.code === 10001) clearSession();
-        setMeResult({ status: "done", user: null });
-      });
+    let retryTimer: number | undefined;
+    let retries = 0;
+    const attempt = () => {
+      getMe()
+        .then((me) => {
+          if (!cancelled) setMeResult({ status: "done", user: me });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          if (err instanceof ApiError && err.code === 10001) {
+            // 会话已过期且无法恢复：清除本地会话，订阅回调会触发重定向
+            clearSession();
+            setMeResult({ status: "done", user: null });
+            return;
+          }
+          // 瞬时错误：有界延迟重试，避免把有效会话误判为未登录
+          retries += 1;
+          if (retries <= 2) {
+            retryTimer = window.setTimeout(attempt, 2000);
+          } else {
+            setMeResult({ status: "done", user: null });
+          }
+        });
+    };
+    attempt();
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [session]);
 

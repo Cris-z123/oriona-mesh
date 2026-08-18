@@ -35,8 +35,10 @@ export function KnowledgeBaseList() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async (targetPage: number) => {
+    setLoading(true);
     try {
       const result = await listKnowledgeBases(targetPage, PAGE_SIZE);
       setItems(result.items);
@@ -50,12 +52,13 @@ export function KnowledgeBaseList() {
   }, []);
 
   useEffect(() => {
-    // 延迟到宏任务执行首次加载：避免在 effect 内同步触发 setState
+    // 延迟到宏任务：load 同步前缀含 setLoading，react-hooks/set-state-in-effect
+    // 要求 effect 内不得同步 setState；加载由本 effect 统一触发，避免重复请求
     const timer = window.setTimeout(() => {
       void load(page);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [load, page]);
+  }, [load, page, reloadKey]);
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -68,7 +71,7 @@ export function KnowledgeBaseList() {
       setCreateName("");
       setCreateDescription("");
       setPage(1);
-      await load(1);
+      setReloadKey((k) => k + 1);
     } catch (err) {
       setError(asApiError(err));
     }
@@ -78,7 +81,12 @@ export function KnowledgeBaseList() {
     setError(null);
     try {
       await deleteKnowledgeBase(kb.id);
-      await load(page);
+      // 末页最后一项删除后回退一页，避免停留在空页
+      if (items.length === 1 && page > 1) {
+        setPage((p) => p - 1);
+      } else {
+        setReloadKey((k) => k + 1);
+      }
     } catch (err) {
       setError(asApiError(err));
     }
@@ -98,7 +106,7 @@ export function KnowledgeBaseList() {
         ...(editDescription.trim() !== "" ? { description: editDescription.trim() } : {}),
       });
       setEditingId(null);
-      await load(page);
+      setReloadKey((k) => k + 1);
     } catch (err) {
       setError(asApiError(err));
     }

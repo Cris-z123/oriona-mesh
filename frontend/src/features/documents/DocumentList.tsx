@@ -7,14 +7,9 @@ import { Button } from "@/components/ui/button";
 import { ApiError, asApiError, deleteDocument, listDocuments } from "@/lib/api/client";
 import type { Document, DocumentStatus } from "@/lib/api/types";
 import { DocumentDetail } from "@/features/documents/DocumentDetail";
-import { isInFlight, statusLabel } from "@/features/documents/status";
+import { isInFlight, isTombstone, statusLabel } from "@/features/documents/status";
 
 const PAGE_SIZE = 20;
-
-/** failed/delete_cleanup/20015：服务端标记的“删除未完成”最小墓碑。 */
-function isTombstone(doc: Document): boolean {
-  return doc.error_code === 20015;
-}
 
 /**
  * 资料列表（T112/FR-005/010/011）：页码/状态列表、失败原因与 allowed_actions 渲染；
@@ -35,8 +30,10 @@ export function DocumentList({
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const result = await listDocuments(
         knowledgeBaseId,
@@ -55,12 +52,13 @@ export function DocumentList({
   }, [knowledgeBaseId, page, statusFilter]);
 
   useEffect(() => {
-    // 延迟到宏任务执行首次加载：避免在 effect 内同步触发 setState
+    // 延迟到宏任务：load 同步前缀含 setLoading，react-hooks/set-state-in-effect
+    // 要求 effect 内不得同步 setState；加载由本 effect 统一触发，避免重复请求
     const timer = window.setTimeout(() => {
       void load();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [load]);
+  }, [load, reloadKey]);
 
   useEffect(() => {
     if (items.some((doc) => isInFlight(doc.status))) {
@@ -75,7 +73,12 @@ export function DocumentList({
     setError(null);
     try {
       await deleteDocument(knowledgeBaseId, doc.id);
-      await load();
+      // 末页最后一项删除后回退一页，避免停留在空页
+      if (items.length === 1 && page > 1) {
+        setPage((p) => p - 1);
+      } else {
+        setReloadKey((k) => k + 1);
+      }
     } catch (err) {
       setError(asApiError(err));
     }
@@ -110,7 +113,9 @@ export function DocumentList({
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate font-medium">{doc.filename}</p>
-                <p className="text-sm text-muted-foreground">{statusLabel(doc.status)}</p>
+                {!isTombstone(doc) ? (
+                  <p className="text-sm text-muted-foreground">{statusLabel(doc.status)}</p>
+                ) : null}
                 {doc.status === "failed" && doc.error_message ? (
                   <p className="text-sm text-destructive">{doc.error_message}</p>
                 ) : null}

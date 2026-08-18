@@ -440,6 +440,23 @@ describe("US1 资料列表", () => {
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(2));
   });
 
+  it("删除末页最后一项后回退到上一页，不停留在空页", async () => {
+    api.listDocuments.mockResolvedValueOnce(page([DOC_COMPLETED], 21)); // 第 1 页
+    api.listDocuments.mockResolvedValueOnce(page([DOC_COMPLETED], 21)); // 第 2 页（仅 1 项）
+    api.listDocuments.mockResolvedValueOnce(page([], 21)); // 回退后的第 1 页
+    api.deleteDocument.mockResolvedValue(undefined);
+    render(<DocumentList knowledgeBaseId="kb-1" />);
+    await screen.findByText("ok.pdf");
+    fireEvent.click(screen.getByRole("button", { name: /下一页/ }));
+    await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(2));
+    // 第 2 页上删除最后一项
+    fireEvent.click(screen.getByRole("button", { name: /^删除$/ }));
+    await waitFor(() => expect(api.deleteDocument).toHaveBeenCalledWith("kb-1", "d-done"));
+    await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(3));
+    // 回退请求携带 page=1
+    expect(api.listDocuments.mock.calls[2]).toEqual(["kb-1", 1, 20, undefined]);
+  });
+
   it("failed/delete_cleanup/20015 仅显示最小墓碑与重试删除，不作为普通失败资料", async () => {
     api.listDocuments.mockResolvedValue(page([DOC_TOMBSTONE]));
     api.deleteDocument.mockResolvedValue(undefined);

@@ -1,4 +1,4 @@
-import type { DocumentStatus } from "@/lib/api/types";
+import { ERROR_CODES, type Document, type DocumentStatus } from "@/lib/api/types";
 
 /** 公开资料状态的中文标签（服务端枚举，客户端只做展示映射）。 */
 export function statusLabel(status: DocumentStatus): string {
@@ -19,4 +19,9 @@ export function statusLabel(status: DocumentStatus): string {
 /** 是否仍在处理中（需要轮询）。 */
 export function isInFlight(status: DocumentStatus): boolean {
   return status === "pending" || status === "queued" || status === "processing";
+}
+
+/** failed/delete_cleanup/20015：服务端标记的“删除未完成”最小墓碑（非普通失败资料）。 */
+export function isTombstone(doc: Document): boolean {
+  return doc.error_code === ERROR_CODES.DELETE_CLEANUP_FAILED;
 }

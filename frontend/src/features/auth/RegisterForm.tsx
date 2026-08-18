@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-import { ApiError, register } from "@/lib/api/client";
+import { asApiError, register } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +29,7 @@ export function RegisterForm() {
       });
       router.push("/login");
     } catch (err) {
-      setError(err instanceof ApiError ? err.msg : "系统繁忙，请稍后再试");
+      setError(asApiError(err).msg);
     } finally {
       setSubmitting(false);
     }

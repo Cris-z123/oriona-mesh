@@ -9,7 +9,7 @@
  * - 分页 page/page_size；限流 10005/429 携带 Retry-After；
  * - SSE：解析 `event:`/`data:` 文本帧并按判别事件分发。
  */
-import { clearSession, getSession, setSession, type SessionState } from "@/lib/api/session";
+import { clearSession, getSession, setSession } from "@/lib/api/session";
 import type {
   ApiEnvelope,
   Document,
@@ -170,11 +170,10 @@ interface RequestOptions {
   body?: unknown;
   /** 认证端点（注册/登录/刷新）不携带 Bearer 且不触发自动刷新。 */
   noAuth?: boolean;
-  retryOnExpired?: boolean;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
-  const { method = "GET", body, noAuth = false, retryOnExpired = true } = options;
+  const { method = "GET", body, noAuth = false } = options;
   const session = noAuth ? null : getSession();
   const headers: Record<string, string> = {};
   if (!noAuth && session) headers.Authorization = `Bearer ${session.accessToken}`;
@@ -190,7 +189,6 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<A
     if (res.ok && envelope && envelope.code === 0) return envelope;
 
     const canRefresh =
-      retryOnExpired &&
       attempt === 0 &&
       !noAuth &&
       res.status === 401 &&
@@ -271,11 +269,6 @@ export async function listKnowledgeBases(page = 1, pageSize = 20): Promise<Page<
   const envelope = await request<Page<KnowledgeBase>>(
     `/knowledge-bases?${qs({ page, page_size: pageSize })}`
   );
-  return envelope.data;
-}
-
-export async function getKnowledgeBase(id: string): Promise<KnowledgeBase> {
-  const envelope = await request<KnowledgeBase>(`/knowledge-bases/${id}`);
   return envelope.data;
 }
 
@@ -423,22 +416,23 @@ export async function streamEvents(path: string, options: SseOptions): Promise<v
     signal: options.signal,
   });
   if (!res.ok || !res.body) {
-    const envelope = await parseEnvelope(res).catch(() => null);
+    const envelope = await parseEnvelope(res);
     throw toApiError(res.status, envelope, res.headers.get("Retry-After"));
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  const frameSeparator = /\r?\n\r?\n/;
   let buffer = "";
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    let frameEnd = buffer.indexOf("\n\n");
-    while (frameEnd !== -1) {
-      dispatchFrame(buffer.slice(0, frameEnd), options.onEvent);
-      buffer = buffer.slice(frameEnd + 2);
-      frameEnd = buffer.indexOf("\n\n");
+    let match = frameSeparator.exec(buffer);
+    while (match) {
+      dispatchFrame(buffer.slice(0, match.index), options.onEvent);
+      buffer = buffer.slice(match.index + match[0].length);
+      match = frameSeparator.exec(buffer);
     }
   }
   if (buffer.trim() !== "") dispatchFrame(buffer, options.onEvent);
@@ -464,5 +458,4 @@ function dispatchFrame(
   onEvent(event, raw as ApiEnvelope<Record<string, unknown>>);
 }
 
-// 显式导出类型，供调用方使用（不复制业务规则）。
-export type { SessionState };
+// 会话类型由调用方从 @/lib/api/session 直接导入。

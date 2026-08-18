@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
-import { ApiError, updateMe } from "@/lib/api/client";
+import { asApiError, updateMe } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +25,7 @@ function ProfileFormInner() {
       const updated = await updateMe({ display_name: displayName });
       setDisplayName(updated.display_name ?? "");
     } catch (err) {
-      setError(err instanceof ApiError ? err.msg : "系统繁忙，请稍后再试");
+      setError(asApiError(err).msg);
     } finally {
       setSaving(false);
     }

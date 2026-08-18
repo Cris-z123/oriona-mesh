@@ -6,7 +6,7 @@ import { ApiErrorNotice } from "@/components/ApiErrorNotice";
 import { Button } from "@/components/ui/button";
 import { ApiError, asApiError, deleteDocument, getDocument } from "@/lib/api/client";
 import type { Document } from "@/lib/api/types";
-import { isInFlight, statusLabel } from "@/features/documents/status";
+import { isInFlight, isTombstone, statusLabel } from "@/features/documents/status";
 
 /**
  * 资料详情（T112/FR-005/010/011）：完整 DTO 渲染与处理中轮询；
@@ -37,7 +37,7 @@ export function DocumentDetail({
   }, [knowledgeBaseId, documentId]);
 
   useEffect(() => {
-    // 延迟到宏任务执行首次加载：避免在 effect 内同步触发 setState
+    // 延迟到宏任务：react-hooks/set-state-in-effect 要求 effect 内不得同步 setState
     const timer = window.setTimeout(() => {
       void load();
     }, 0);
@@ -64,17 +64,16 @@ export function DocumentDetail({
     }
   };
 
-  if (error) return <ApiErrorNotice error={error} />;
+  if (error && !doc) return <ApiErrorNotice error={error} />;
   if (!doc) return null;
-
-  const isTombstone = doc.error_code === 20015;
 
   return (
     <section aria-label="资料详情" className="space-y-2 rounded-md border px-3 py-2">
+      {error ? <ApiErrorNotice error={error} /> : null}
       <div className="flex items-center justify-between gap-2">
         <h3 className="truncate font-medium">{doc.filename}</h3>
         <div className="flex shrink-0 gap-2">
-          {isTombstone ? (
+          {isTombstone(doc) ? (
             <>
               <span className="text-sm font-medium text-destructive">删除未完成</span>
               <Button variant="destructive" onClick={() => void onDelete()}>
