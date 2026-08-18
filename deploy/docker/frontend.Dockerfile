@@ -27,6 +27,8 @@ RUN pnpm install --frozen-lockfile --registry=${NPM_REGISTRY}
 # ---------- 构建阶段：复制源码与 node_modules 后执行 next build ----------
 FROM base AS builder
 WORKDIR /repo
+ARG NEXT_PUBLIC_API_BASE_URL=/v1
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 # node-linker=hoisted：全部依赖平铺在 /repo/node_modules（frontend/ 下无 node_modules）。
 COPY --from=deps /repo/node_modules ./node_modules
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./

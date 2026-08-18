@@ -99,7 +99,7 @@ frontend/              # Next.js 前端（骨架；业务渲染自阶段 8 起�
 specs/                 # 功能规格与权威契约文档
 scripts/               # 质量门禁脚本（check-backend.sh / verify-contracts.sh / check-frontend.sh）
 deploy/                # Docker 镜像（docker/）与 Compose 编排（compose/）
-.github/workflows/     # CI（ci.yml）与镜像构建/漏洞扫描门禁（image.yml，不发布）
+.github/workflows/     # CI（ci.yml）与镜像构建/扫描、正式 tag GitHub Release 交付（image.yml）
 ```
 
 ## 测试与质量
@@ -129,34 +129,26 @@ bash scripts/verify-contracts.sh # 契约与部署基线（OpenAPI/迁移离线 
 ### Docker Compose（单机）
 
 `deploy/compose/compose.yaml` 编排 PostgreSQL（pgvector）、Redis、one-off 迁移、后端
-API、Celery worker 与前端；API/worker 共用 `BACKEND_IMAGE` 并共同挂载
-`/data/orionamesh` 命名持久卷，前端使用 `FRONTEND_IMAGE`（本地省略镜像变量时回退到
-Dockerfile 构建）。必填变量通过 `deploy/compose/.env` 提供（缺失时
-`docker compose config` 直接报错）。
+API、Celery worker、前端与 Nginx。仅 Nginx 发布 80；API/worker 共用 `BACKEND_IMAGE` 与
+`/data/orionamesh` 命名持久卷，前端使用 `FRONTEND_IMAGE`。应用镜像必须来自已校验的
+GitHub Release，Compose 不包含 `build` 配置。
 
-```bash
-docker compose -f deploy/compose/compose.yaml up -d --build
-```
-
-**国内服务器部署（无 GHCR 依赖）**：`deploy/compose/.env.example` 提供全部必填变量模板；
-`scripts/deploy.sh` 一键构建并启动（基础镜像走 Docker Hub 加速，npmjs/PyPI 可经
-`NPM_REGISTRY` / `UV_INDEX_URL` 构建参数指向镜像源）；`deploy/nginx/nginx.conf` 提供
-IP 同源反代示例（前端与 `/v1` API 同源，规避 CORS；SSE 已关闭缓冲）。有域名后追加
-443 监听与证书即可。
+腾讯云单机的首次部署、GitHub Release 下载与 SHA-256 校验、导入、升级、回滚和安全组规则，
+以 [quickstart.md](specs/001-orionamesh-rag-mvp/quickstart.md#github-release-单机部署腾讯云-ubuntu-x86_64)
+为唯一运行手册。
 
 ### 镜像门禁（GitHub Actions）
 
-- `image.yml` 在 main / 正式 Git tag（`v*`）推送时构建 backend/frontend 双镜像并执行
-  Trivy 漏洞扫描（HIGH/CRITICAL 即失败）；镜像**不发布** GHCR——部署为服务器本地构建。
+- `image.yml` 在 PR/main/正式 Git tag（`v*`）构建 `linux/amd64` backend/frontend 双镜像并执行
+  Trivy 漏洞扫描（HIGH/CRITICAL 即失败）；正式 tag 额外生成带 SHA-256 文件的 GitHub Release
+  归档，服务器仅导入归档中的应用镜像。
 
-### 升级与回滚（服务器本地构建）
+### 升级与回滚
 
-- 升级顺序：`git pull`（新代码）→ `docker compose up -d --build` → 串行 one-off migrate
-  容器执行 `alembic upgrade head` → **成功后**才切换 API/worker/前端并执行健康检查。
-  API/worker 启动命令不自动迁移；迁移失败时旧容器保持运行。
-- 回滚：服务器上把仓库切回上一已验证 commit（`git checkout <commit>`），执行
-  `docker compose up -d --build`（Docker 层缓存使重建快速）再执行健康检查。
-  镜像回滚**不会自动降级数据库**；破坏性迁移发布前必须先人工备份，失败时停止发布并按备份恢复。
+- 升级：下载并校验新的 GitHub Release，导入镜像，执行 one-off migrate，成功后以
+  `--no-build --pull never` 更新应用并等待健康检查。
+- 回滚：导入上一已验证 Release 的镜像并重复部署；镜像回滚**不会自动降级数据库**。破坏性迁移发布前
+  必须先人工备份，失败时停止发布并按备份恢复。
 
 ## 文档导航
 

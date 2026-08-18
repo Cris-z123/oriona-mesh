@@ -80,7 +80,8 @@ MVP 保持 Top-K、RRF 与 Context Pack 的固定默认策略；向量和关键�
 - MVP 使用挂载至容器内 `/data/orionamesh` 的本地持久卷；数据库只保存相对对象键。存储访问必须与后端无关，以便后续迁移对象存储。
 - PostgreSQL（含 `pgvector` 与 `pg_trgm`）保存领域数据；Redis 只保存队列和短生命周期的限流计数，不得成为业务状态真相源。
 - 请求限流在服务端实施：认证流量按可信来源 IP 与不可逆账号摘要限制，上传和问答按当前用户限制。原始邮箱、令牌、完整转发链和请求正文不得进入 Redis、日志或指标。
-- 部署目标是 Linux 容器上的 Docker Compose 单机实例；镜像在服务器本地构建（`scripts/deploy.sh`，不依赖 GHCR/GitHub 网络），CI 的 `image.yml` 只做双镜像构建与 Trivy 漏洞扫描门禁，不发布镜像。
+- 部署目标是 Linux 容器上的 Docker Compose 单机实例；GitHub Actions 在正式 tag 构建、扫描并发布
+  前端/后端 `linux/amd64` 镜像归档，服务器校验后导入运行，既不访问 GHCR，也不在服务器构建应用镜像。
 
 完整环境变量、依赖安装、迁移、就绪检查、Compose、质量工具和验证步骤由 [Quickstart](../specs/001-orionamesh-rag-mvp/quickstart.md) 唯一维护。
 
@@ -90,7 +91,7 @@ MVP 保持 Top-K、RRF 与 Context Pack 的固定默认策略；向量和关键�
 |---|---|
 | 前端 | Next.js、React、TypeScript、Tailwind CSS、shadcn/ui、Pino、pnpm |
 | 后端 | Python 3.12、FastAPI、Pydantic、SQLAlchemy、Alembic、LangChain、Celery、Redis、PostgreSQL、pgvector、pg_trgm、JWT、structlog、uv |
-| 部署 | Docker Compose、GitHub Actions、GitHub Container Registry |
+| 部署 | Docker Compose、GitHub Actions、GitHub Releases |
 
 ## 开发期文档边界
 

@@ -31,27 +31,33 @@
 | 后端质量工具 | Ruff format/check、Pyright | 全绿 |
 | 契约与部署基线（OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式；迁移离线 SQL 的 last_login 可空/Citation 非空唯一/delete_cleanup/知识库 `delete_error_code=20015` 配对约束；扩展；HS256 无覆盖变量；限流与模型出口默认值；解析依赖；契约测试子集） | `scripts/verify-contracts.sh` | 通过（168 passed / 1 skipped） |
 | 前端质量门禁（根锁文件安装 → ESLint → Prettier → tsc → Vitest） | `scripts/check-frontend.sh` | 通过 |
-| 完整 Compose 冒烟（构建双镜像 → one-off migrate → API/worker/前端健康 → 容器重建后 `/data/orionamesh` 卷保留） | `RUN_DELIVERY_SMOKE=1` 下的 `tests/integration/test_delivery_stack.py::TestFullStackSmoke` | **1 passed**（本地构建验证；本机 Docker Hub 受限时经镜像拉取基础镜像，CI 不受影响） |
-| GitHub Actions | `ci.yml`（PR CI）、`image.yml`（双镜像构建/Trivy 扫描门禁，不发布镜像） | 已交付，随首次推送生效 |
+| 完整 Compose 冒烟（历史 T132：服务器本地构建双镜像 → one-off migrate → API/worker/前端健康 → 持久卷保留） | `RUN_DELIVERY_SMOKE=1` 下的 `tests/integration/test_delivery_stack.py::TestFullStackSmoke` | **1 passed**（历史结果；T133 改为预导入 Release 镜像后运行） |
+| GitHub Actions（历史 T132） | `ci.yml`（PR CI）、`image.yml`（双镜像构建/Trivy 扫描门禁，不发布镜像） | 已交付；T133 改为正式 tag 发布 GitHub Release |
 
-**冻结的部署契约**（与上文「质量与交付验证」一致）：
+**现行部署契约（T133，取代上表中的历史本地构建记录）**：
 
-- 部署方式：单机服务器**本地构建**（方案 A，`scripts/deploy.sh`），不依赖 GHCR/GitHub 网络；
-  代码经 `git clone` / Gitee 中转 / 打包上传后执行 `bash scripts/deploy.sh`（首次）或
-  `bash scripts/deploy.sh update`（更新，内部先 `git pull --ff-only`）；`docker compose up -d --build`
-  在服务器本地构建双镜像，Docker Hub 基础镜像走加速器（腾讯云 `mirror.ccs.tencentyun.com`），
-  PyPI/npm 可经 `UV_INDEX_URL`/`NPM_REGISTRY` 指向镜像源（TUNA/npmmirror）。
-- 升级顺序：`git pull`（新代码）→ `docker compose up -d --build` → 串行 one-off migrate 容器执行
-  `alembic upgrade head` → 成功后切换 API/worker/前端并健康检查；API/worker 启动命令不自动迁移；
-  迁移失败时旧容器保持运行。
-- 回滚：服务器上把仓库切回上一已验证 commit（`git checkout <commit>`），执行
-  `docker compose up -d --build`（Docker 层缓存使重建快速）再健康检查。镜像回滚不会自动降级数据库；
-  破坏性迁移发布前必须先人工备份，失败时停止发布并按备份恢复。
+- 部署方式：GitHub Actions 在正式 `v*` tag 构建并扫描 `linux/amd64` 前端、后端镜像，生成含镜像
+  tar、`release.env`、Compose、Nginx 与部署脚本的 GitHub Release 归档；腾讯云服务器校验、解压并
+  `docker image load`，不从 GHCR 拉取、也不在服务器构建应用镜像。
+- 首次部署时 Compose 创建 PostgreSQL（`pgvector/pgvector:pg16`）、带密码的 Redis、Nginx、
+  one-off migrate、API、worker 与前端；以后普通发布只导入并替换前端/后端镜像。仅 Nginx 发布
+  `80`，PostgreSQL、Redis、API、worker 和前端均不发布主机端口。
+- 升级顺序：校验归档 → 导入镜像 → 确保 PostgreSQL/Redis 健康 → 串行 one-off migrate 成功 →
+  以 `--no-build --pull never` 更新 API/worker/前端并等待健康检查；Nginx 与 PostgreSQL/Redis
+  同属基础设施，本机缺失时允许拉取（`--pull missing`）。迁移失败时脚本退出，不更新应用服务。
+- 回滚使用上一 GitHub Release 的镜像归档；镜像回滚不会自动降级数据库。破坏性迁移发布前必须先
+  人工备份，失败时停止发布并按备份恢复。
 - 环境变量以本文档「环境变量文件与部署安全契约」及下方配置契约为唯一真相源；示例模板：
   `.env.example`（部署参考）、`backend/.env.local.example`、`backend/.env.test.example`、
   `frontend/.env.example`；部署模式不读取仓库内 `.env` 文件。
 
 A6 通过后允许开始前端 UI（阶段 8 起）。
+
+### T133 交付验证记录（待执行）
+
+T133 的静态交付契约已纳入 `backend/tests/integration/test_delivery_stack.py`；真实 `v*` tag 的 GitHub
+Release 产物、腾讯云首次部署、升级和回滚尚未执行。完成后必须在此记录 Release URL、提交 SHA、外层
+SHA-256 校验结果、Compose 服务状态、端口暴露、迁移结果和回滚结果，再勾选 `tasks.md` 的 T133/T133a/T133b。
 
 ## 前置条件
 
@@ -238,17 +244,95 @@ Reranker 和 Generation 最大尝试预算之和再加 60 秒；默认值 360 �
 1. 后端依次执行 Ruff format/check、Pyright、pytest、迁移与扩展就绪检查、OpenAPI 校验。
    OpenAPI 校验必须确认所有操作声明限流策略，`10005/429` 响应具有必需的 `Retry-After`。
 2. 前端依次执行 pnpm lint、Prettier check、TypeScript 类型检查、Vitest 和 Playwright。
-3. 使用 Docker Compose 启动 PostgreSQL、Redis、后端 worker、后端和前端；验证健康与就绪检查。
+3. 使用 Docker Compose 启动 PostgreSQL、Redis、后端 worker、后端、前端和 Nginx；验证健康与就绪检查。
    重建 API/worker 容器后必须验证 `/data/orionamesh` 命名卷中的原始资料和解析对象仍存在且可读取。
 4. GitHub Actions 必须以锁文件安装依赖、执行上述质量门禁，并在 `image.yml` 中构建
-   backend/frontend 双镜像后执行 Trivy 漏洞扫描（HIGH/CRITICAL 即失败）；镜像**不发布**——
-   部署为服务器本地构建（见「冻结的部署契约」），`image.yml` 仅充当镜像质量门禁。
+   `linux/amd64` backend/frontend 双镜像后执行 Trivy 漏洞扫描（HIGH/CRITICAL 即失败）。正式 `v*`
+   tag 必须把双镜像 tar、镜像引用清单、Compose、Nginx 和部署脚本打包为 GitHub Release 资产，并附
+   SHA-256 校验文件。
 5. 架构门禁必须确认供应商 SDK 和外部模型 HTTP 客户端仅存在于
    `backend/app/infrastructure/model_gateway/providers/`；出口安全测试必须证明脱敏失败时无网络调用。
-6. Compose 通过 `BACKEND_IMAGE`、`FRONTEND_IMAGE` 接收完整镜像引用；省略时（服务器本地构建）
-   按 Dockerfile 在服务器上构建（`docker compose up -d --build`）。回滚必须把镜像引用/代码版本
-   一起切回上一已验证 commit 后重建，执行 `docker compose up -d --build` 和健康检查。镜像回滚
-   不得自动降级数据库；破坏性迁移发布前必须人工备份，失败时停止发布并按备份恢复。
-7. 部署升级必须先构建（或显式 `pull` 指定镜像）并等待成功，再由单次串行 one-off 后端容器执行
-   `alembic upgrade head`；成功后才切换 API、worker 和前端并执行健康检查。API/worker 启动不得
-   自动迁移，迁移失败时旧容器保持运行。
+6. Compose 只能通过 GitHub Release `release.env` 接收完整的 `BACKEND_IMAGE`、`FRONTEND_IMAGE`
+   引用；应用服务不得包含 `build` 配置。服务器导入镜像后以 `docker compose up --no-build --pull never`
+   运行；回滚必须导入上一已验证 Release 的镜像并健康检查。镜像回滚不得自动降级数据库；破坏性迁移
+   发布前必须人工备份，失败时停止发布并按备份恢复。
+7. 部署升级必须先校验并导入归档，再由单次串行 one-off 后端容器执行 `alembic upgrade head`；成功后
+   才切换 API、worker、前端和 Nginx 并执行健康检查。API/worker 启动不得自动迁移，迁移失败时旧容器
+   保持运行。
+
+## GitHub Release 单机部署（腾讯云 Ubuntu x86_64）
+
+此流程面向已安装 Docker Engine 与 Compose 插件的 Linux x86_64 服务器。GitHub Release 是公开镜像
+归档的分发点；服务器不需要 GitHub Token、仓库源码、Node.js、Python、uv 或 pnpm。
+
+### 创建正式发布包
+
+在通过质量门禁的提交上创建并推送版本标签，例如：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+等待 `Images` 工作流成功。其 GitHub Release 会提供 `orionamesh-release-v0.1.0.tar.gz` 及同名
+`.sha256` 文件；该包仅包含应用镜像，PostgreSQL、Redis 和 Nginx 在服务器首次启动时由 Compose 获取并
+保存在本地。
+
+### 首次准备服务器
+
+腾讯云安全组只允许管理所需的 SSH（22）与 HTTP（80）；不得开放 5432、6379、3000 或 8000。准备运行
+目录与服务器秘密：
+
+```bash
+sudo install -d -m 0750 /opt/orionamesh
+sudo install -m 0600 /dev/null /opt/orionamesh/.env
+sudo nano /opt/orionamesh/.env
+```
+
+`.env` 从发布包的 `deploy/compose/.env.example` 复制字段；`POSTGRES_PASSWORD`、`REDIS_PASSWORD`、
+`AUTH_JWT_SECRET_KEY` 与 `RATE_LIMIT_SUBJECT_HMAC_KEY` 使用不同的随机值（例如
+`openssl rand -hex 48`）。不得填写 `BACKEND_IMAGE`/`FRONTEND_IMAGE`，它们只由已校验发布包内的
+`release.env` 提供。模型网关 endpoint、API Key 与模型名称必须按上方配置契约填写，`.env` 绝不提交或上传。
+
+如果服务器已有仅用于旧版的 Compose 栈，确认其没有需保留的数据后，使用该**旧栈对应的** Compose 文件
+执行 `docker compose down`（禁止 `-v`），释放 80 端口；不得删除不属于 OrionaMesh 的容器或卷。
+
+### 下载、校验、导入并启动
+
+将下列命令中的 tag 替换为实际版本；也可从本地电脑下载后通过 `scp` 上传同名两个文件。
+
+```bash
+cd /tmp
+tag=v0.1.0
+base="https://github.com/Cris-z123/oriona-mesh/releases/download/${tag}"
+curl -fLO "${base}/orionamesh-release-${tag}.tar.gz"
+curl -fLO "${base}/orionamesh-release-${tag}.tar.gz.sha256"
+sha256sum -c "orionamesh-release-${tag}.tar.gz.sha256"
+tar -xzf "orionamesh-release-${tag}.tar.gz"
+cd "orionamesh-release-${tag}"
+sudo bash scripts/deploy.sh /opt/orionamesh
+```
+
+部署脚本会把当前版本的 Compose 与 Nginx 配置安装到 `/opt/orionamesh/deploy/`，导入两份应用镜像，依次
+运行迁移和应用服务。它不会执行 `docker build`、`docker pull`（应用镜像）或删除卷。
+
+验证：
+
+```bash
+sudo docker compose --project-directory /opt/orionamesh \
+  --env-file /opt/orionamesh/.env \
+  --env-file release.env \
+  -f /opt/orionamesh/deploy/compose/compose.yaml ps
+curl -f http://127.0.0.1/
+
+# 核对 Compose 网络实际子网落在 RATE_LIMIT_TRUSTED_PROXY_CIDRS 内（默认 172.16.0.0/12
+# 覆盖 Docker 默认地址池）；若 Docker 地址池被自定义为其他网段（如 10.x/192.168.x），
+# 用实际子网更新 /opt/orionamesh/.env 后重新部署，否则 nginx 不被信任、限流按代理 IP 聚合。
+sudo docker network inspect orionamesh_default --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+```
+
+### 升级与回滚
+
+升级重复「下载、校验、导入并启动」步骤，并改用新 tag。脚本会先完成新镜像迁移，迁移成功后才替换应用容器。
+回滚时重复上一已验证 tag 的部署步骤；如果新迁移与旧应用不兼容，先停止回滚并按发布前的数据库备份恢复，
+禁止自动执行 Alembic downgrade。

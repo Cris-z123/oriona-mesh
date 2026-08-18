@@ -21,7 +21,7 @@ Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回
 **Primary Dependencies**: FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino  
 **Storage**: PostgreSQL 16（pgvector、pg_trgm）；Redis 7 仅用于队列与瞬时限流；MVP 使用挂载到 `/data/orionamesh` 的本地持久卷并只保存相对对象键  
 **Testing**: pytest、Ruff、Pyright、OpenAPI 校验、架构/契约/集成/安全测试；Vitest、Testing Library、Playwright、ESLint、Prettier、TypeScript  
-**Target Platform**: Linux 容器；Docker Compose 单机部署；GitHub Actions CI/CD  
+**Target Platform**: Linux x86_64 容器；Docker Compose 单机部署；GitHub Actions 构建/扫描与 GitHub Releases 归档交付
 **Project Type**: 前后端分离 Web 应用，后端 REST API + SSE  
 **Performance Goals**: SC-001～SC-007 的量化值为产品成功观察指标；当前实施阶段不建立固定评测集、比例断言、性能阈值门禁或发布阻断条件  
 **Constraints**: Backend-First；JWT Access Token 2 小时、Refresh Token 7 天；单文件 50MB、单批 20 个；单用户最多 3 份资料 processing；外部模型出口 fail-closed；日志禁止 payload；邮箱以单一规范化函数存储、登录和限流；检索只使用通过证据门槛的候选
@@ -149,6 +149,20 @@ SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、�
 - 存在运行 attempt 时不无限等待，也不提前释放其 lease：删除事务锁定 lease 并以当时的 `expires_at`（默认最长 300 秒）冻结等待上限；资料进入 deleting 后，心跳事务不得再续租。worker 下一个持久化边界会被 fencing 拦截并主动取消；若 worker 失联，孤儿任务扫描器到期后在事务中将 attempt/task 置 `cancelled`、释放 lease，再激活 `delete_cleanup`。
 - `delete_cleanup` 删除原始对象、解析结果、草稿和正式片段后保留 `deleted` 墓碑；历史引用外键置空并保留非空快照。
 - 删除知识库先标记内部状态 `deleting`，对其全部资料执行同一删除编排并立即从 API 隐藏。所有资料清理完成且无活动 attempt 后，维护扫描器才物理删除知识库，并级联对话、消息与引用；空知识库可在删除事务内直接删除。禁止依赖数据库立即级联来替代文件和 worker 协调。
+
+### 8. 单机镜像归档交付
+
+- PR、`main` 与正式 `v*` tag 都构建 `linux/amd64` 前端/后端镜像并执行 Trivy HIGH/CRITICAL 门禁；
+  仅正式 tag 导出两个 Docker image tar，与不可变 SHA 镜像引用、Compose、Nginx、部署脚本和 SHA-256
+  校验一起发布为 GitHub Release。
+- 腾讯云服务器只校验、解压和导入发布包中的应用镜像；不得访问 GHCR、在服务器构建应用镜像或以
+  `latest` 作为运行引用。PostgreSQL、Redis 与 Nginx 是 Compose 的首次部署基础设施，不属于普通
+  应用版本包。
+- 部署脚本固定顺序为：验证发布包 → `docker image load` → PostgreSQL/Redis 健康 → one-off
+  `alembic upgrade head` → `docker compose up --no-build --pull never` 更新 API、worker、前端；
+  Nginx 与 PostgreSQL/Redis 同属基础设施镜像，首次部署本机缺失时允许拉取（`--pull missing`）。
+  迁移失败时不得替换应用服务；回滚只导入上一已验证 Release，绝不自动降级数据库。
+- 具体服务器命令、秘密文件、端口暴露、安全组、升级和回滚步骤只在 `quickstart.md` 维护。
 
 ## Phase 0：研究输出
 

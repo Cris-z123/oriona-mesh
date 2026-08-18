@@ -524,7 +524,7 @@ pending 批次，进程崩溃后行锁自动释放。同一
 **备选方案**：Access Token 内嵌 session ID 且不提交 refresh token；可在后续演进，但当前契约已
 明确由刷新令牌建立和轮换会话，增加 JWT claim 不是必要条件。
 
-## 决策 38：GHCR 双镜像采用不可变 SHA 发布与成对回滚
+## 决策 38：镜像交付采用不可变 SHA 与成对回滚
 
 **决定**：GitHub Actions 使用仓库 `GITHUB_TOKEN` 的 `packages: write` 权限发布
 `ghcr.io/${GITHUB_REPOSITORY}-backend` 与 `ghcr.io/${GITHUB_REPOSITORY}-frontend`，workflow 将仓库
@@ -546,3 +546,10 @@ one-off 后端容器执行 `alembic upgrade head`，API/worker 不得在启动�
 login/`packages: write`/push）。回滚改为服务器 `git checkout` 上一已验证 commit 后重建。
 不可变标签可审计、成对回滚避免契约漂移、不自动降级数据库、迁移失败保持旧容器运行等原则不变
 （升级/回滚顺序见 quickstart「冻结的部署契约」）。
+
+**修订（2026-08-18，T133）**：服务器不再本地构建应用。GitHub Actions 对 PR/main 保留
+`linux/amd64` 双镜像构建与 Trivy 门禁；正式 `v*` tag 导出 backend/frontend 的 Docker image tar，
+与不可变 SHA 镜像引用清单、Compose、Nginx 和部署脚本打包为公开 GitHub Release，并发布 SHA-256。
+服务器校验后 `docker image load`，以 `--no-build --pull never` 运行。PostgreSQL、Redis 与 Nginx
+仅在首次 Compose 启动时获取并持久化，普通版本包不包含它们。部署脚本先完成 one-off migration，
+成功后才替换应用容器；回滚导入上一 Release，绝不自动降级数据库。
