@@ -316,7 +316,7 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
   `.sha256`、包内 `release.files.sha256`、两份镜像 tar、`release.env` 和运行时配置完整，记录 run URL 与
   SHA-256 于 `quickstart.md`。
 - [ ] T133b [T133] 在腾讯云 Ubuntu x86_64 首次部署（v0.1.1 已通过，见 quickstart「T133 交付验证记录」；
-  升级与回滚待第二 tag）：以无业务数据的旧 Compose 栈释放 80 端口，创建
+  升级与回滚经确认豁免验收，任务保持未完成状态）：以无业务数据的旧 Compose 栈释放 80 端口，创建
   `0600` 的 `/opt/orionamesh/.env`，运行发布包内 `scripts/deploy.sh`；验证 Nginx 挂载的是
   `/opt/orionamesh/deploy/nginx/nginx.conf` 而非兼容路径、仅 80 监听、`docker compose ps`
   全部就绪、PostgreSQL 的 `vector/pg_trgm/pgcrypto` 扩展、Redis 认证、`/` 反向代理和 Compose 内 API `/ready`，

@@ -74,7 +74,7 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
   应用服务 `--no-build --pull never` 更新并健康检查通过；Nginx 挂载
   `/opt/orionamesh/deploy/nginx/nginx.conf`（绝对路径注入生效）；仅 80 监听、`compose ps` 全就绪、
   PG 扩展、Redis 认证、`/` 反向代理与 Compose 内 API `/ready` 均验证通过
-- 升级与回滚（第二 tag → 首个 tag）尚未执行，完成后续记。
+- 升级与回滚（第二 tag → 首个 tag）经确认豁免验收，不执行；T133b 保持未勾选。
 
 ## 前置条件
 
