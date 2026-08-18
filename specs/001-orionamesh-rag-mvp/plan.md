@@ -18,7 +18,7 @@ Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回
 ## Technical Context
 
 **Language/Version**: Python 3.12；TypeScript 5.x；Node.js 22 LTS  
-**Primary Dependencies**: FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、Pino  
+**Primary Dependencies**: FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、TanStack Query、Zustand、next-themes、React Hook Form、Zod、Pino
 **Storage**: PostgreSQL 16（pgvector、pg_trgm）；Redis 7 仅用于队列与瞬时限流；MVP 使用挂载到 `/data/orionamesh` 的本地持久卷并只保存相对对象键  
 **Testing**: pytest、Ruff、Pyright、OpenAPI 校验、架构/契约/集成/安全测试；Vitest、Testing Library、Playwright、ESLint、Prettier、TypeScript  
 **Target Platform**: Linux x86_64 容器；Docker Compose 单机部署；GitHub Actions 构建/扫描与 GitHub Releases 归档交付
@@ -51,6 +51,7 @@ specs/001-orionamesh-rag-mvp/
 ├── plan.md
 ├── research.md
 ├── data-model.md
+├── ui-design.md
 ├── quickstart.md
 ├── contracts/
 │   ├── openapi.yaml
@@ -76,7 +77,7 @@ backend/
 
 frontend/
 ├── app/
-├── src/{components,features,lib}
+├── src/{components,features,lib,stores}
 └── tests/{unit,component,e2e}/
 
 scripts/
@@ -88,6 +89,10 @@ deploy/
 凭证仅允许出现在 `infrastructure/model_gateway`；限流实现位于 `infrastructure/rate_limit`。
 `chunks` 的检索、引用活表读取和流水线校验统一收口到 `backend/app/repositories/chunks.py`；
 所有流水线持久化仓储接收 `attempt_id` 并执行 fencing 校验。
+
+前端服务器状态只由 TanStack Query 管理；Zustand 只管理导航、抽屉和视图偏好等短生命周期 UI
+状态，主题由 next-themes 管理。前端不得以客户端 store 复制服务端实体、授权、状态机或错误语义；
+具体视觉与交互规范由 `ui-design.md` 维护。
 
 ## 关键设计决策
 
@@ -177,6 +182,7 @@ SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、�
 
 - [data-model.md](./data-model.md)：领域核心字段、关系、状态机、批次协调、阶段编排、fencing、消息恢复和数据边界；ORM 与 Alembic 迁移是物理建表真相源。
 - [contracts/openapi.yaml](./contracts/openapi.yaml)：版本化 REST/SSE、统一信封、分页、完整 Attempt DTO、上传 202 收敛项、会话撤销、Citation 条件契约、错误码与限流。
+- [ui-design.md](./ui-design.md)：桌面优先的视觉令牌、布局、组件体系、可信问答/引用交互、客户端状态职责与可访问性边界。
 - [quickstart.md](./quickstart.md)：uv/pnpm、扩展、配置、迁移、确定性功能/安全测试、Docker 与 CI 验证路径。
 
 ## Post-Design Constitution Check

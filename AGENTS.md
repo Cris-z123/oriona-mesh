@@ -15,6 +15,7 @@
 - 数据不变量、状态机和事务：[data-model.md](./specs/001-orionamesh-rag-mvp/data-model.md)
 - REST/SSE 与错误码：[openapi.yaml](./specs/001-orionamesh-rag-mvp/contracts/openapi.yaml)
 - 模型出口、脱敏与审计：[model-egress.md](./specs/001-orionamesh-rag-mvp/contracts/model-egress.md)
+- 前端视觉、交互、组件与客户端状态职责：[ui-design.md](./specs/001-orionamesh-rag-mvp/ui-design.md)
 - 配置、部署和验证：[quickstart.md](./specs/001-orionamesh-rag-mvp/quickstart.md)
 
 变更需求、数据、接口或配置时，先更新对应权威文档，再同步受影响任务；不要在多个文档维护同一份规则。

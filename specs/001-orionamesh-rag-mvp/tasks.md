@@ -6,7 +6,7 @@ description: "OrionaMesh 个人知识库 RAG MVP 的后端优先实施任务"
 
 **输入**：[plan.md](./plan.md)、[spec.md](./spec.md)、[research.md](./research.md)、
 [data-model.md](./data-model.md)、[openapi.yaml](./contracts/openapi.yaml)、
-[model-egress.md](./contracts/model-egress.md)、[quickstart.md](./quickstart.md)
+[model-egress.md](./contracts/model-egress.md)、[ui-design.md](./ui-design.md)、[quickstart.md](./quickstart.md)
 
 > 文档职责：本文件只定义实施顺序、交付物和验证任务；不重新定义需求、数据状态机、API、错误码或配置默认值。实现发生变更时，先更新对应权威文档，再同步受影响任务。
 
@@ -242,6 +242,27 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ---
 
+## 阶段 8.1：前端共享 UI 与状态基础（阶段 9 前）
+
+**目标**：落实 `ui-design.md` 的桌面工作台、浅/深色令牌、可访问组件与客户端状态职责，避免后续页面各自复制样式、轮询或抽屉状态。
+
+**独立测试**：浅/深色切换、键盘焦点、Query 缓存失效、非终态资料轮询和本地 UI 状态均可确定性验证；服务端状态、令牌、授权和错误码不会写入客户端 UI store。
+
+### 先写测试
+
+- [ ] T134 [P] 编写主题令牌、应用壳、键盘导航、抽屉焦点回归和 `prefers-reduced-motion` 的组件测试于 `frontend/tests/component/ui-foundation.test.tsx`
+- [ ] T135 [P] 编写 Query Provider 的精确失效、非终态资料轮询停止、登出清空缓存及 Zustand 不保存服务端实体/令牌的单元测试于 `frontend/tests/unit/lib/query-client.test.ts`、`frontend/tests/unit/stores/ui-store.test.ts`
+
+### 前端实现
+
+- [ ] T136 配置并锁定 `@tanstack/react-query`、`zustand`、`next-themes`、`react-hook-form`、`zod` 和所需 Shadcn/UI 原语；实现语义 Tailwind/CSS 令牌、默认浅色与“夜间编辑桌”深色主题、Query Provider、Theme Provider 及登出缓存清理于 `frontend/package.json`、`pnpm-lock.yaml`、`frontend/src/app/layout.tsx`、`frontend/src/app/globals.css`、`frontend/src/lib/query-client.tsx`
+- [ ] T137 实现只保存导航折叠、引用抽屉和非敏感视图偏好的 Zustand UI store，以及桌面优先 `AppShell`、`WorkspaceNav`、`ContextRail`、`ThemeToggle`、`EmptyState`、`ErrorState` 和可访问 Shadcn/UI 基础组件于 `frontend/src/stores/ui-store.ts`、`frontend/src/components/app-shell/`、`frontend/src/components/ui/`
+- [ ] T138 将资料列表/详情的现有请求迁移到统一 Query 封装与 DTO 驱动的非终态轮询；保留 `delete_failed/20015` 最小墓碑、`allowed_actions` 和既有 API 错误映射，不得以 UI store 复制服务端实体或状态机，于 `frontend/src/features/documents/`、`frontend/src/features/knowledge-bases/`
+
+**检查点**：共享 UI 基础与状态职责通过；默认浅色、深色切换和桌面高密度布局可用；现有 US1 业务边界未改变。
+
+---
+
 ## 阶段 9：前端用户故事 2 渲染（仅在 T105 后）
 
 **目标**：渲染必须绑定知识库的会话、历史消息、SSE 回答、拒答提示和来源引用。
@@ -250,14 +271,14 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ### 先写测试
 
-- [ ] T113 [P] [US2] 编写知识库绑定、可空会话标题、分页、五类 SSE 增量、无证据、`failed/error`、`cancelled/cancelled` 和引用快照组件失败测试于 `frontend/tests/component/user-story-2.test.tsx`
+- [ ] T113 [US2] 在 T134～T138 通过后，编写知识库绑定、可空会话标题、分页、五类 SSE 增量、无证据、`failed/error`、`cancelled/cancelled` 和引用快照组件失败测试；覆盖紧凑证据卡按 `rank` 排序、CitationDrawer 的键盘打开/关闭与 `live`/`snapshot` 安全边界，于 `frontend/tests/component/user-story-2.test.tsx`
 
 ### 前端实现
 
-- [ ] T114 [US2] 实现知识库绑定会话页码列表、可空标题展示、创建、重命名与删除界面于 `frontend/src/app/conversations/page.tsx`、`frontend/src/features/conversations/ConversationList.tsx`
-- [ ] T115 [US2] 实现消息历史分页、提问和五类判别式 SSE 信封事件解析，分别保留正常、服务失败和客户端取消终态于 `frontend/src/features/conversations/MessageThread.tsx`、`frontend/src/features/conversations/useMessageStream.ts`
-- [ ] T116 [US2] 实现无完成资料/无证据、`failed/error`、`cancelled/cancelled`、Token 过期、当前租户不可见资源 404、限流与 trace_id 用户提示于 `frontend/src/features/conversations/ConversationFeedback.tsx`
-- [ ] T117 [US2] 按统一 Citation DTO 实现引用页码按需加载、rank 顺序、`source_type=live` 当前来源与 ID 为空的 `snapshot` 快照抽屉，于 `frontend/src/features/citations/CitationDrawer.tsx`
+- [ ] T114 [US2] 基于 `AppShell` 实现知识库绑定会话页码列表、可空标题展示、创建、重命名与删除界面，并通过 TanStack Query 管理服务端列表与 mutation 失效，于 `frontend/src/app/conversations/page.tsx`、`frontend/src/features/conversations/ConversationList.tsx`
+- [ ] T115 [US2] 实现消息历史分页、提问和五类判别式 SSE 信封事件解析：流式草稿仅在 hook 生命周期内保存，收到终态后精确失效消息/引用查询，分别保留正常、服务失败和客户端取消终态，于 `frontend/src/features/conversations/MessageThread.tsx`、`frontend/src/features/conversations/useMessageStream.ts`
+- [ ] T116 [US2] 实现无完成资料/无证据、`failed/error`、`cancelled/cancelled`、Token 过期、当前租户不可见资源 404、限流与 trace_id 用户提示，并符合 `ui-design.md` 的可访问反馈与非颜色单独表达，于 `frontend/src/features/conversations/ConversationFeedback.tsx`
+- [ ] T117 [US2] 按统一 Citation DTO 实现回答下方的紧凑证据卡、页码按需加载、rank 顺序、`source_type=live` 当前来源与 ID 为空的 `snapshot` 快照 CitationDrawer；抽屉状态仅保存引用 ID，严禁构造已删除原始资料入口，于 `frontend/src/features/citations/CitationCard.tsx`、`frontend/src/features/citations/CitationDrawer.tsx`
 
 **检查点**：前端不允许创建纯聊天；SSE 流与失败都按统一信封解析；引用快照不可恢复原始资料。
 
@@ -337,14 +358,15 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
           → 阶段 6（A5 后端契约门禁）
             → 阶段 7（A6 工程化、部署与交付门禁）
               → 阶段 8（US1 前端）
-                → 阶段 9（US2 前端）
-                  → 阶段 10（US3 前端与联调）
+                → 阶段 8.1（共享 UI 与状态基础）
+                  → 阶段 9（US2 前端）
+                    → 阶段 10（US3 前端与联调）
                     → 阶段 11（收尾）
 ```
 
-- **T091 是 A5 门禁**：T092–T105 不得在其通过前开始；**T105 是 A6 门禁**：T106–T121 前端与联调任务不得在其通过前开始。
+- **T091 是 A5 门禁**：T092–T105 不得在其通过前开始；**T105 是 A6 门禁**：阶段 8、8.1、9、10 的前端与联调任务不得在其通过前开始；阶段 9 另依赖 T134–T138。
 - **US1 后端**依赖阶段 1–2；**US2 后端**依赖 US1 已产生可检索完成资料；**US3 后端**依赖 US1 的状态机与删除基础。
-- 前端用户故事沿用后端顺序，以避免消费未冻结 API；阶段 8–10 的 `[P]` 测试可与不同组件实现并行。
+- 前端用户故事沿用后端顺序，以避免消费未冻结 API；阶段 8、8.1、9、10 的 `[P]` 测试可与不同组件实现并行。
 
 ## 并行机会
 
@@ -354,7 +376,7 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 - US2：T060–T064 可按会话、检索、拒答、SSE 与模型弹性分文件并行；T075–T077 在对应实现后并行。
 - US3：T078/T079 可并行；T083 在状态与删除实现后执行。
 - 工程化：T094–T098、T100/T101、T103/T104 可按不同文件并行。
-- 前端仅在 T105 后：US1 的 T106/T107、US2 的 T113、US3 的 T118 可先独立建立失败测试。
+- 前端仅在 T105 后：US1 的 T106/T107、共享 UI 的 T134/T135、US3 的 T118 可先独立建立失败测试；US2 的 T113 依赖 T134–T138。
 
 ## 用户故事并行执行示例
 
@@ -401,7 +423,7 @@ MVP 仍需继续完成 T060–T105 后再进入前端。
 
 ### 前端增量交付
 
-1. T105 后先完成阶段 8，演示认证、知识库、上传和资料状态。
+1. T105 后先完成阶段 8，再完成阶段 8.1 的共享 UI 与状态基础，演示认证、知识库、上传和资料状态。
 2. 继续阶段 9，演示绑定知识库的流式可信问答与来源。
 3. 完成阶段 10 和 11，进行端到端验证与文档收尾。
 
@@ -409,5 +431,5 @@ MVP 仍需继续完成 T060–T105 后再进入前端。
 
 - `[P]` 仅表示不同文件且不依赖同一未完成输出；不改变 T091/T105 的后端先行门禁。
 - 任务 T001–T091 为后端或后端验证任务；T092–T105 为工程化、部署与 CI/CD 任务；
-  T106–T121 为前端或前后端联调任务。
+  T106–T121 及 T134–T138 为前端或前后端联调任务。
 - 不实现资料重处理、资料替换、纯聊天和自助密码重置；这些需求不得在任务执行中重新引入。
