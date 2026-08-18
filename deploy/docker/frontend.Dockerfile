@@ -61,6 +61,13 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
+# 运行时仅执行 node frontend/server.js（standalone 输出），不需要 npm/yarn/corepack；
+# 基础镜像自带的 npm 携带 HIGH/CRITICAL 依赖漏洞（brace-expansion/ip-address/
+# picomatch/sigstore/tar），一并移除以通过 Trivy 门禁。
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 USER node
 EXPOSE 3000
 CMD ["node", "frontend/server.js"]
