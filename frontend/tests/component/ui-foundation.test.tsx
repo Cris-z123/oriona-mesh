@@ -39,7 +39,7 @@ beforeEach(() => {
   // 每个用例恢复 UI store 初始状态，避免跨用例泄漏
   useUiStore.setState({
     navCollapsed: false,
-    citationDrawerId: null,
+    citationDrawerSelector: null,
     documentStatusFilter: "all",
   });
   document.documentElement.classList.remove("dark");

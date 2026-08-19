@@ -90,6 +90,65 @@ export interface DocumentUploadResult {
   documents: Document[];
 }
 
+/** 绑定知识库的连续问答容器；标题为空时由界面显示“未命名对话”。 */
+export interface Conversation {
+  id: string;
+  knowledge_base_id: string;
+  title: string | null;
+  last_message_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AssistantMessageStatus = "streaming" | "completed" | "failed" | "cancelled";
+export type AssistantFinishReason = "stop" | "length" | "error" | "cancelled" | null;
+
+export interface UserMessage {
+  id: string;
+  conversation_id: string;
+  role: "user";
+  content: string;
+  status: "completed";
+  rewritten_query: string | null;
+  finish_reason: null;
+  created_at: string;
+}
+
+export interface AssistantMessage {
+  id: string;
+  conversation_id: string;
+  role: "assistant";
+  content: string;
+  status: AssistantMessageStatus;
+  rewritten_query: null;
+  finish_reason: AssistantFinishReason;
+  created_at: string;
+}
+
+export type Message = UserMessage | AssistantMessage;
+
+/** 游标分页消息历史；服务端顺序和 next_before 为唯一可信依据。 */
+export interface MessageCursorPage {
+  items: Message[];
+  has_more: boolean;
+  next_before: string | null;
+}
+
+/** 引用 DTO 不包含持久化 ID；UI 仅以消息内的 rank 作为短生命周期抽屉选择器。 */
+export interface Citation {
+  rank: number;
+  score: number;
+  chunk_id: string | null;
+  document_id: string | null;
+  document_version: number;
+  filename: string;
+  file_type: DocumentFileType;
+  page: number | null;
+  section: string | null;
+  content: string;
+  source_type: "live" | "snapshot";
+}
+
 /** 上传约束（FR-024/FR-025，与 openapi 描述一致；服务端仍为最终执行者）。 */
 export const UPLOAD_LIMITS = {
   maxFileBytes: 50 * 1024 * 1024,

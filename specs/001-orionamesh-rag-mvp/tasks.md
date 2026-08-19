@@ -272,14 +272,14 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ### 先写测试
 
-- [ ] T113 [US2] 在 T134～T138 通过后，编写知识库绑定、可空会话标题、分页、五类 SSE 增量、无证据、`failed/error`、`cancelled/cancelled` 和引用快照组件失败测试；覆盖紧凑证据卡按 `rank` 排序、CitationDrawer 的键盘打开/关闭与 `live`/`snapshot` 安全边界，于 `frontend/tests/component/user-story-2.test.tsx`
+- [x] T113 [US2] 在 T134～T138 通过后，编写知识库绑定、可空会话标题、分页、五类 SSE 增量、无证据、`failed/error`、`cancelled/cancelled` 和引用快照组件失败测试；覆盖紧凑证据卡按 `rank` 排序、CitationDrawer 的键盘打开/关闭与 `live`/`snapshot` 安全边界，于 `frontend/tests/component/user-story-2.test.tsx`
 
 ### 前端实现
 
-- [ ] T114 [US2] 基于 `AppShell` 实现知识库绑定会话页码列表、可空标题展示、创建、重命名与删除界面，并通过 TanStack Query 管理服务端列表与 mutation 失效，于 `frontend/src/app/conversations/page.tsx`、`frontend/src/features/conversations/ConversationList.tsx`
-- [ ] T115 [US2] 实现消息历史分页、提问和五类判别式 SSE 信封事件解析：流式草稿仅在 hook 生命周期内保存，收到终态后精确失效消息/引用查询，分别保留正常、服务失败和客户端取消终态，于 `frontend/src/features/conversations/MessageThread.tsx`、`frontend/src/features/conversations/useMessageStream.ts`
-- [ ] T116 [US2] 实现无完成资料/无证据、`failed/error`、`cancelled/cancelled`、Token 过期、当前租户不可见资源 404、限流与 trace_id 用户提示，并符合 `ui-design.md` 的可访问反馈与非颜色单独表达，于 `frontend/src/features/conversations/ConversationFeedback.tsx`
-- [ ] T117 [US2] 按统一 Citation DTO 实现回答下方的紧凑证据卡、页码按需加载、rank 顺序、`source_type=live` 当前来源与 ID 为空的 `snapshot` 快照 CitationDrawer；抽屉状态仅保存引用 ID，严禁构造已删除原始资料入口，于 `frontend/src/features/citations/CitationCard.tsx`、`frontend/src/features/citations/CitationDrawer.tsx`
+- [x] T114 [US2] 基于 `AppShell` 实现知识库绑定会话页码列表、可空标题展示、创建、重命名与删除界面，并通过 TanStack Query 管理服务端列表与 mutation 失效，于 `frontend/src/app/conversations/page.tsx`、`frontend/src/features/conversations/ConversationList.tsx`
+- [x] T115 [US2] 实现消息历史分页、提问和五类判别式 SSE 信封事件解析：流式草稿仅在 hook 生命周期内保存，收到终态后精确失效消息/引用查询，分别保留正常、服务失败和客户端取消终态，于 `frontend/src/features/conversations/MessageThread.tsx`、`frontend/src/features/conversations/useMessageStream.ts`
+- [x] T116 [US2] 实现无完成资料/无证据、`failed/error`、`cancelled/cancelled`、Token 过期、当前租户不可见资源 404、限流与 trace_id 用户提示，并符合 `ui-design.md` 的可访问反馈与非颜色单独表达，于 `frontend/src/features/conversations/ConversationFeedback.tsx`
+- [x] T117 [US2] 按统一 Citation DTO 实现回答下方的紧凑证据卡、页码按需加载、rank 顺序、`source_type=live` 当前来源与 ID 为空的 `snapshot` 快照 CitationDrawer；抽屉状态仅保存由 `messageId + rank` 组成的引用选择器，严禁构造已删除原始资料入口，于 `frontend/src/features/citations/CitationCard.tsx`、`frontend/src/features/citations/CitationDrawer.tsx`
 
 **检查点**：前端不允许创建纯聊天；SSE 流与失败都按统一信封解析；引用快照不可恢复原始资料。
 

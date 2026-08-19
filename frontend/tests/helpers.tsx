@@ -19,5 +19,10 @@ export function makeTestQueryClient(): QueryClient {
 
 /** 渲染带独立测试 QueryClient 的组件。 */
 export function renderWithProviders(ui: ReactElement): RenderResult {
-  return render(<QueryClientProvider client={makeTestQueryClient()}>{ui}</QueryClientProvider>);
+  const client = makeTestQueryClient();
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
 }

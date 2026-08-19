@@ -1,7 +1,8 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 import { AppShell } from "@/components/app-shell/AppShell";
 import { RequireAuth } from "@/features/auth/RequireAuth";
@@ -10,8 +11,18 @@ import { UploadPanel } from "@/features/documents/UploadPanel";
 import { queryKeys } from "@/lib/query-keys";
 
 export default function KnowledgeBaseDocumentsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">正在加载资料…</div>}>
+      <KnowledgeBaseDocumentsWorkspace />
+    </Suspense>
+  );
+}
+
+function KnowledgeBaseDocumentsWorkspace() {
   const params = useParams<{ knowledgeBaseId: string }>();
+  const searchParams = useSearchParams();
   const knowledgeBaseId = params.knowledgeBaseId;
+  const documentId = searchParams.get("document");
   const queryClient = useQueryClient();
 
   /** 上传成功（202 已接受）后精确失效该知识库的资料子树，列表重取当前页。 */
@@ -31,7 +42,7 @@ export default function KnowledgeBaseDocumentsPage() {
             <p className="text-sm text-muted-foreground">上传并跟踪资料处理状态</p>
           </header>
           <UploadPanel knowledgeBaseId={knowledgeBaseId} onUploaded={onUploaded} />
-          <DocumentList knowledgeBaseId={knowledgeBaseId} />
+          <DocumentList knowledgeBaseId={knowledgeBaseId} initialDocumentId={documentId} />
         </div>
       </AppShell>
     </RequireAuth>

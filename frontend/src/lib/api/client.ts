@@ -12,10 +12,13 @@
 import { clearSession, getSession, setSession } from "@/lib/api/session";
 import type {
   ApiEnvelope,
+  Citation,
+  Conversation,
   Document,
   DocumentStatus,
   DocumentUploadResult,
   KnowledgeBase,
+  MessageCursorPage,
   Page,
   SessionTokens,
   User,
@@ -312,6 +315,72 @@ export async function updateKnowledgeBase(
 
 export async function deleteKnowledgeBase(id: string): Promise<void> {
   await request<null>(`/knowledge-bases/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// 会话、消息与引用（FR-013～FR-019；阶段 9）
+// ---------------------------------------------------------------------------
+
+export async function listConversations(
+  knowledgeBaseId: string,
+  page = 1,
+  pageSize = 20
+): Promise<Page<Conversation>> {
+  const envelope = await request<Page<Conversation>>(
+    `/conversations?${qs({ knowledge_base_id: knowledgeBaseId, page, page_size: pageSize })}`
+  );
+  return envelope.data;
+}
+
+export async function createConversation(input: {
+  knowledge_base_id: string;
+  title?: string;
+}): Promise<Conversation> {
+  const envelope = await request<Conversation>("/conversations", { method: "POST", body: input });
+  return envelope.data;
+}
+
+export async function getConversation(id: string): Promise<Conversation> {
+  const envelope = await request<Conversation>(`/conversations/${id}`);
+  return envelope.data;
+}
+
+export async function renameConversation(
+  id: string,
+  input: { title: string }
+): Promise<Conversation> {
+  const envelope = await request<Conversation>(`/conversations/${id}`, {
+    method: "PATCH",
+    body: input,
+  });
+  return envelope.data;
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  await request<null>(`/conversations/${id}`, { method: "DELETE" });
+}
+
+export async function listMessages(
+  conversationId: string,
+  before?: string,
+  limit = 50
+): Promise<MessageCursorPage> {
+  const envelope = await request<MessageCursorPage>(
+    `/conversations/${conversationId}/messages?${qs({ before, limit })}`
+  );
+  return envelope.data;
+}
+
+export async function listCitations(
+  conversationId: string,
+  messageId: string,
+  page = 1,
+  pageSize = 20
+): Promise<Page<Citation>> {
+  const envelope = await request<Page<Citation>>(
+    `/conversations/${conversationId}/messages/${messageId}/citations?${qs({ page, page_size: pageSize })}`
+  );
+  return envelope.data;
 }
 
 // ---------------------------------------------------------------------------

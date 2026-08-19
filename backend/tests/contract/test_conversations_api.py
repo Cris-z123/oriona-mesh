@@ -165,6 +165,42 @@ class TestCreateConversation:
 
 
 class TestListConversations:
+    def test_filters_and_paginates_within_knowledge_base(
+        self, client: TestClient, clean_rate_limit_keys
+    ) -> None:
+        tokens = _register(client, "conv-kb-filter@example.com")
+        headers = _headers(tokens)
+        first_kb = _create_kb(client, headers)
+        second_kb = _create_kb(client, headers)
+        for index in range(2):
+            assert (
+                client.post(
+                    "/v1/conversations",
+                    json={"knowledge_base_id": str(first_kb), "title": f"first-{index}"},
+                    headers=headers,
+                ).status_code
+                == 201
+            )
+        assert (
+            client.post(
+                "/v1/conversations",
+                json={"knowledge_base_id": str(second_kb), "title": "second"},
+                headers=headers,
+            ).status_code
+            == 201
+        )
+
+        response = client.get(
+            f"/v1/conversations?knowledge_base_id={first_kb}&page=2&page_size=1",
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["total"] == 2
+        assert len(data["items"]) == 1
+        assert data["items"][0]["knowledge_base_id"] == str(first_kb)
+
     def test_pagination_defaults_and_cap(self, client: TestClient, clean_rate_limit_keys) -> None:
         tokens = _register(client, "conv-list@example.com")
         headers = _headers(tokens)
