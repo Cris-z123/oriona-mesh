@@ -8,31 +8,17 @@ import {
 
 import { ApiError, deleteDocument, getDocument, listDocuments } from "@/lib/api/client";
 import type { Document, Page } from "@/lib/api/types";
+import { queryKeys } from "@/lib/query-keys";
 import { isInFlight } from "@/features/documents/status";
 import type { DocumentStatusFilter } from "@/stores/ui-store";
 
 /**
  * 资料查询封装（T138，ui-design §6.1/6.2）：
- * - 查询键按资源层级构造（knowledgeBases → documents → 列表/详情）；
+ * - 查询键集中维护于 `@/lib/query-keys`（按资源层级构造）；
  * - DTO 驱动的非终态轮询：仅在数据仍为非终态时按间隔重取，终态后停止；
  * - mutation 成功后只精确失效该知识库的资料子树（refetchType "none"，
  *   不重取），由组件在需要时显式重取，避免“末页删除回退”出现重复请求。
  */
-
-export const queryKeys = {
-  knowledgeBases: (page: number, pageSize: number) =>
-    ["knowledgeBases", { page, pageSize }] as const,
-  /** 某知识库的资料子树前缀（列表与详情）。 */
-  documents: (knowledgeBaseId: string) => ["knowledgeBases", knowledgeBaseId, "documents"] as const,
-  documentList: (
-    knowledgeBaseId: string,
-    page: number,
-    pageSize: number,
-    status: DocumentStatusFilter
-  ) => [...queryKeys.documents(knowledgeBaseId), { page, pageSize, status }] as const,
-  documentDetail: (knowledgeBaseId: string, documentId: string) =>
-    [...queryKeys.documents(knowledgeBaseId), documentId] as const,
-};
 
 export interface UseDocumentListOptions {
   /** 非终态资料轮询间隔（毫秒）。 */

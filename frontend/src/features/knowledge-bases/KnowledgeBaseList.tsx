@@ -11,12 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { KnowledgeBase } from "@/lib/api/types";
 import {
-  knowledgeBaseQueryKeys,
   useCreateKnowledgeBase,
   useDeleteKnowledgeBase,
   useKnowledgeBaseList,
   useUpdateKnowledgeBase,
 } from "@/features/knowledge-bases/queries";
+import { queryKeys } from "@/lib/query-keys";
 
 const PAGE_SIZE = 20;
 
@@ -48,7 +48,7 @@ export function KnowledgeBaseList() {
 
   /** 写成功后重取当前活动页（非末页回退场景）。 */
   const refreshList = async () => {
-    await queryClient.refetchQueries({ queryKey: knowledgeBaseQueryKeys.all() });
+    await queryClient.refetchQueries({ queryKey: queryKeys.knowledgeBasesAll() });
   };
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {

@@ -15,9 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { queryKeys } from "@/lib/query-keys";
 import type { Document } from "@/lib/api/types";
 import { DocumentDetail } from "@/features/documents/DocumentDetail";
-import { queryKeys, useDeleteDocument, useDocumentList } from "@/features/documents/queries";
+import { useDeleteDocument, useDocumentList } from "@/features/documents/queries";
 import { isTombstone, statusLabel } from "@/features/documents/status";
 import { useUiStore, type DocumentStatusFilter } from "@/stores/ui-store";
 

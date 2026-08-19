@@ -1,52 +1,66 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 
 import { asApiError, register } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/** 注册表单（FR-001）：注册成功后引导到登录页。 */
+/** 注册表单（FR-001）：本地结构校验由 RHF + Zod resolver 执行，服务端为最终执行者。 */
+const registerSchema = z.object({
+  email: z.string().trim().email("请输入有效邮箱地址"),
+  password: z.string().min(8, "密码至少需要 8 个字符"),
+  displayName: z.string().trim().max(100, "昵称不能超过 100 个字符"),
+});
+
+type RegisterValues = z.infer<typeof registerSchema>;
+
 export function RegisterForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const {
+    register: registerField,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+  } = useForm<RegisterValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: { email: "", password: "", displayName: "" },
+  });
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setSubmitting(true);
+  const onSubmit = async (values: RegisterValues) => {
     try {
       await register({
-        email,
-        password,
-        ...(displayName.trim() !== "" ? { display_name: displayName.trim() } : {}),
+        email: values.email,
+        password: values.password,
+        ...(values.displayName !== "" ? { display_name: values.displayName } : {}),
       });
       router.push("/login");
     } catch (err) {
-      setError(asApiError(err).msg);
-    } finally {
-      setSubmitting(false);
+      setError("root", { message: asApiError(err).msg });
     }
   };
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="register-email">邮箱</Label>
         <Input
           id="register-email"
           type="email"
           autoComplete="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
+          aria-invalid={errors.email ? true : undefined}
+          aria-describedby={errors.email ? "register-email-error" : undefined}
+          {...registerField("email")}
         />
+        {errors.email ? (
+          <p id="register-email-error" role="alert" className="text-sm text-destructive">
+            {errors.email.message}
+          </p>
+        ) : null}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="register-password">密码</Label>
@@ -54,26 +68,36 @@ export function RegisterForm() {
           id="register-password"
           type="password"
           autoComplete="new-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          minLength={8}
-          required
+          aria-invalid={errors.password ? true : undefined}
+          aria-describedby={errors.password ? "register-password-error" : undefined}
+          {...registerField("password")}
         />
+        {errors.password ? (
+          <p id="register-password-error" role="alert" className="text-sm text-destructive">
+            {errors.password.message}
+          </p>
+        ) : null}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="register-display-name">昵称</Label>
         <Input
           id="register-display-name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
+          aria-invalid={errors.displayName ? true : undefined}
+          aria-describedby={errors.displayName ? "register-display-name-error" : undefined}
+          {...registerField("displayName")}
         />
+        {errors.displayName ? (
+          <p id="register-display-name-error" role="alert" className="text-sm text-destructive">
+            {errors.displayName.message}
+          </p>
+        ) : null}
       </div>
-      {error ? (
+      {errors.root ? (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {errors.root.message}
         </p>
       ) : null}
-      <Button type="submit" disabled={submitting} className="w-full">
+      <Button type="submit" disabled={isSubmitting} className="w-full">
         注册
       </Button>
     </form>

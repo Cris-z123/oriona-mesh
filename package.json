@@ -17,11 +17,5 @@
     "test": "pnpm --filter frontend test",
     "test:e2e": "pnpm --filter frontend test:e2e",
     "check": "bash scripts/check-backend.sh && bash scripts/check-frontend.sh"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "sharp",
-      "unrs-resolver"
-    ]
   }
 }

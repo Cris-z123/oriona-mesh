@@ -4,13 +4,13 @@ import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  queryKeys,
   useDeleteDocument,
   useDocumentDetail,
   useDocumentList,
 } from "@/features/documents/queries";
 import { clearSession, setSession } from "@/lib/api/session";
 import { bindQueryClientToSession, makeQueryClient } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 import type { Document } from "@/lib/api/types";
 
 /**

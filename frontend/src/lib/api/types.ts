@@ -57,6 +57,9 @@ export type DocumentTaskType =
   "parse" | "chunk" | "embed" | "finalize" | "cleanup" | "delete_cleanup";
 export type DocumentFileType = "pdf" | "docx" | "md" | "txt";
 
+/** 资料列表的非敏感视图偏好：状态过滤（"all" 表示不过滤）。 */
+export type DocumentStatusFilter = DocumentStatus | "all";
+
 /**
  * 资料详情：异步失败以 HTTP 200 + error_code/error_message 表达；
  * failed/delete_cleanup/20015 为最小“删除未完成”墓碑（allowed_actions 仅为 retry_delete）。

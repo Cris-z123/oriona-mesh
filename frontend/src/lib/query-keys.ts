@@ -1,0 +1,20 @@
+/**
+ * TanStack Query 资源键（ui-design §6.1）：按服务端资源层级集中维护，
+ * 避免知识库和资料功能各自复制前缀而导致失效范围漂移。
+ */
+import type { DocumentStatusFilter } from "@/lib/api/types";
+
+export const queryKeys = {
+  knowledgeBases: (page: number, pageSize: number) =>
+    ["knowledgeBases", { page, pageSize }] as const,
+  knowledgeBasesAll: () => ["knowledgeBases"] as const,
+  documents: (knowledgeBaseId: string) => ["knowledgeBases", knowledgeBaseId, "documents"] as const,
+  documentList: (
+    knowledgeBaseId: string,
+    page: number,
+    pageSize: number,
+    status: DocumentStatusFilter
+  ) => [...queryKeys.documents(knowledgeBaseId), { page, pageSize, status }] as const,
+  documentDetail: (knowledgeBaseId: string, documentId: string) =>
+    [...queryKeys.documents(knowledgeBaseId), documentId] as const,
+};

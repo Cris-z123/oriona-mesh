@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { queryKeys, useDeleteDocument, useDocumentDetail } from "@/features/documents/queries";
+import { useDeleteDocument, useDocumentDetail } from "@/features/documents/queries";
 import { isTombstone, statusLabel } from "@/features/documents/status";
+import { queryKeys } from "@/lib/query-keys";
 
 /**
  * 资料详情（T112/T138/FR-005/010/011）：完整 DTO 渲染与 DTO 驱动轮询。

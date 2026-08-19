@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { DocumentStatus } from "@/lib/api/types";
+import type { DocumentStatusFilter } from "@/lib/api/types";
 
 /**
  * UI store（T137，ui-design §6.1）：只保存短生命周期客户端 UI 状态——
@@ -9,8 +9,7 @@ import type { DocumentStatus } from "@/lib/api/types";
  * 服务器状态只由 TanStack Query 管理。
  */
 
-/** 资料列表的非敏感视图偏好：状态过滤（"all" 表示不过滤）。 */
-export type DocumentStatusFilter = DocumentStatus | "all";
+export type { DocumentStatusFilter } from "@/lib/api/types";
 
 interface UiState {
   /** 左侧工作区导航折叠状态。 */

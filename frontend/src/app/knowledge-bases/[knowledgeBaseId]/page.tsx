@@ -6,8 +6,8 @@ import { useParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell/AppShell";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { DocumentList } from "@/features/documents/DocumentList";
-import { queryKeys } from "@/features/documents/queries";
 import { UploadPanel } from "@/features/documents/UploadPanel";
+import { queryKeys } from "@/lib/query-keys";
 
 export default function KnowledgeBaseDocumentsPage() {
   const params = useParams<{ knowledgeBaseId: string }>();

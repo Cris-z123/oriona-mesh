@@ -9,14 +9,11 @@ import type { ReactNode } from "react";
  */
 export function ContextRail({ children }: { children: ReactNode }) {
   return (
-    <>
-      <aside
-        aria-label="上下文栏"
-        className="fixed inset-y-0 right-0 hidden w-72 border-l bg-surface xl:block"
-      >
-        <div className="h-full overflow-y-auto p-4">{children}</div>
-      </aside>
-      <div className="mt-6 border-t pt-4 xl:hidden">{children}</div>
-    </>
+    <aside
+      aria-label="上下文栏"
+      className="mt-6 border-t pt-4 xl:fixed xl:inset-y-0 xl:right-0 xl:mt-0 xl:w-72 xl:border-l xl:border-t-0 xl:bg-surface xl:pt-0"
+    >
+      <div className="xl:h-full xl:overflow-y-auto xl:p-4">{children}</div>
+    </aside>
   );
 }

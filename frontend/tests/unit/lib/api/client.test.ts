@@ -361,6 +361,32 @@ describe("API 客户端：会话恢复与刷新轮换", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer at-1");
     expect(getSession()).toBeNull();
   });
+
+  it("登出遇到 10001 后使用轮换后的整组令牌撤销新会话", async () => {
+    setSession({ accessToken: "at-expired", refreshToken: "rt-old", expiresAt: Date.now() - 1000 });
+    fetchMock
+      .mockResolvedValueOnce(fetchResponse(401, envelope(10001, null, "登录状态已过期")))
+      .mockResolvedValueOnce(
+        fetchResponse(
+          200,
+          envelope(0, {
+            access_token: "at-new",
+            refresh_token: "rt-new",
+            token_type: "Bearer",
+            expires_in: 7200,
+          })
+        )
+      )
+      .mockResolvedValueOnce(fetchResponse(200, envelope(0, null)));
+
+    await logout();
+
+    const revokeRetry = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(revokeRetry.method).toBe("DELETE");
+    expect((revokeRetry.headers as Record<string, string>).Authorization).toBe("Bearer at-new");
+    expect(JSON.parse(String(revokeRetry.body))).toEqual({ refresh_token: "rt-new" });
+    expect(getSession()).toBeNull();
+  });
 });
 
 describe("API 客户端：SSE 帧解析（T108 封装）", () => {

@@ -5,7 +5,6 @@ import { ThemeProvider } from "next-themes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/app-shell/AppShell";
-import { ContextRail } from "@/components/app-shell/ContextRail";
 import { ThemeToggle } from "@/components/app-shell/ThemeToggle";
 import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -112,14 +111,14 @@ function renderShell(shell: ReactNode) {
 describe("AppShell 桌面应用壳与键盘导航", () => {
   it("渲染工作区导航、主内容与上下文栏三层结构", () => {
     renderShell(
-      <AppShell contextRail={<ContextRail>上下文内容</ContextRail>}>
+      <AppShell contextRail={<p>上下文内容</p>}>
         <h1>主内容</h1>
       </AppShell>
     );
     expect(screen.getByRole("navigation", { name: "工作区导航" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveTextContent("主内容");
-    // 上下文栏：桌面固定侧栏 + 小视口移入页面区域（同一内容两份 DOM，由 CSS 控制可见性）
-    expect(screen.getAllByText("上下文内容").length).toBeGreaterThanOrEqual(1);
+    // 同一节点在桌面固定侧栏与小视口页面区域之间切换，不得重复挂载内容。
+    expect(screen.getAllByText("上下文内容")).toHaveLength(1);
   });
 
   it("导航链接按视觉顺序排列且当前页有 aria-current", () => {
@@ -203,7 +202,12 @@ describe("EmptyState / ErrorState", () => {
     expect(screen.getByRole("button", { name: "上传" })).toBeInTheDocument();
   });
 
-  it("ErrorState 以 alert 呈现服务端 msg 与可复制 trace_id，不展示令牌或堆栈", () => {
+  it("ErrorState 以 alert 呈现服务端 msg 与可复制 trace_id，不展示令牌或堆栈", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     const error = new ApiError({
       code: 20007,
       msg: "请求的资源不存在",
@@ -214,6 +218,9 @@ describe("EmptyState / ErrorState", () => {
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByText("请求的资源不存在")).toBeInTheDocument();
     expect(screen.getByText(`trace_id: ${TEST_TRACE_ID}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制追踪 ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(TEST_TRACE_ID));
+    expect(screen.getByText("已复制追踪 ID")).toBeInTheDocument();
     expect(screen.queryByText(/Bearer|access|refresh/i)).not.toBeInTheDocument();
   });
 });

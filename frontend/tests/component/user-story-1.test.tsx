@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "../helpers";
-import { AuthProvider } from "@/features/auth/AuthProvider";
+import { AuthProvider, useAuth } from "@/features/auth/AuthProvider";
 import { LoginForm } from "@/features/auth/LoginForm";
 import { RegisterForm } from "@/features/auth/RegisterForm";
 import { RequireAuth } from "@/features/auth/RequireAuth";
@@ -279,6 +279,41 @@ describe("US1 认证", () => {
     );
     await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/login"));
   });
+
+  it("切换会话时不显示上一账号资料，直到新会话恢复完成", async () => {
+    const userB = { id: "u2", email: "b@example.com", display_name: "Bob" };
+    let resolveUserB: ((user: typeof userB) => void) | undefined;
+    api.getMe.mockResolvedValueOnce(USER).mockImplementationOnce(
+      () =>
+        new Promise<typeof userB>((resolve) => {
+          resolveUserB = resolve;
+        })
+    );
+
+    function AuthProbe() {
+      const { ready, user } = useAuth();
+      return <p>{ready ? (user?.email ?? "无用户") : "恢复中"}</p>;
+    }
+
+    setSession({ accessToken: "at-a", refreshToken: "rt-a", expiresAt: Date.now() + 100000 });
+    render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>
+    );
+    expect(await screen.findByText("a@example.com")).toBeInTheDocument();
+
+    act(() => {
+      setSession({ accessToken: "at-b", refreshToken: "rt-b", expiresAt: Date.now() + 100000 });
+    });
+    expect(screen.getByText("恢复中")).toBeInTheDocument();
+    expect(screen.queryByText("a@example.com")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveUserB?.(userB);
+    });
+    expect(await screen.findByText("b@example.com")).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -293,6 +328,7 @@ describe("US1 个人资料", () => {
     render(
       <AuthProvider>
         <ProfileForm />
+        <CurrentUserProbe />
       </AuthProvider>
     );
     const input = await screen.findByLabelText(/显示名/);
@@ -301,8 +337,14 @@ describe("US1 个人资料", () => {
     fireEvent.click(screen.getByRole("button", { name: /保存/ }));
     await waitFor(() => expect(api.updateMe).toHaveBeenCalledWith({ display_name: "Bob" }));
     await waitFor(() => expect(screen.getByLabelText(/显示名/)).toHaveValue("Bob"));
+    expect(screen.getByText("当前用户：Bob")).toBeInTheDocument();
   });
 });
+
+function CurrentUserProbe() {
+  const { user } = useAuth();
+  return <p>当前用户：{user?.display_name ?? "未加载"}</p>;
+}
 
 // ---------------------------------------------------------------------------
 // 知识库列表 / 删除墓碑 / 重试删除（FR-003）

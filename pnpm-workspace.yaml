@@ -2,3 +2,13 @@
 # 所有前端包必须在 packages 列表内；不允许子目录自建锁文件或 node_modules。
 packages:
   - frontend
+
+# pnpm 10.26+ 从工作区配置读取允许执行 install scripts 的依赖。
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+# pnpm 11 采用显式布尔映射；保留上面的 pnpm 10 配置以兼容项目锁定的版本。
+allowBuilds:
+  sharp: true
+  unrs-resolver: true

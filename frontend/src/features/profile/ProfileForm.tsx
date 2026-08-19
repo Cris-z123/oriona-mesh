@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 
 import { asApiError, updateMe } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -8,46 +10,62 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/features/auth/AuthProvider";
 
+/** 本人基本资料表单（FR-002）：本地结构校验由 RHF + Zod resolver 执行，服务端为最终执行者。 */
+const profileSchema = z.object({
+  displayName: z.string().trim().min(1, "请输入显示名").max(100, "显示名不能超过 100 个字符"),
+});
+
+type ProfileValues = z.infer<typeof profileSchema>;
+
 /** 表单内部组件：以 user.id 为 key 挂载，保证显示名状态与当前用户一致。 */
 function ProfileFormInner() {
-  const { user } = useAuth();
-  const [displayName, setDisplayName] = useState(user?.display_name ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { user, updateCurrentUser } = useAuth();
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+    reset,
+  } = useForm<ProfileValues>({
+    resolver: zodResolver(profileSchema),
+    defaultValues: { displayName: user?.display_name ?? "" },
+  });
 
   if (!user) return null;
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setSaving(true);
+  const onSubmit = async (values: ProfileValues) => {
     try {
-      const updated = await updateMe({ display_name: displayName });
-      setDisplayName(updated.display_name ?? "");
+      const updated = await updateMe({ display_name: values.displayName });
+      reset({ displayName: updated.display_name ?? "" });
+      updateCurrentUser(updated);
     } catch (err) {
-      setError(asApiError(err).msg);
-    } finally {
-      setSaving(false);
+      setError("root", { message: asApiError(err).msg });
     }
   };
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="profile-display-name">显示名</Label>
         <Input
           id="profile-display-name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
+          aria-invalid={errors.displayName ? true : undefined}
+          aria-describedby={errors.displayName ? "profile-display-name-error" : undefined}
+          {...register("displayName")}
         />
+        {errors.displayName ? (
+          <p id="profile-display-name-error" role="alert" className="text-sm text-destructive">
+            {errors.displayName.message}
+          </p>
+        ) : null}
       </div>
       <p className="text-sm text-muted-foreground">邮箱：{user.email}</p>
-      {error ? (
+      {errors.root ? (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {errors.root.message}
         </p>
       ) : null}
-      <Button type="submit" disabled={saving}>
+      <Button type="submit" disabled={isSubmitting}>
         保存
       </Button>
     </form>
