@@ -9,8 +9,6 @@ import type { DocumentStatusFilter } from "@/lib/api/types";
  * 服务器状态只由 TanStack Query 管理。
  */
 
-export type { DocumentStatusFilter } from "@/lib/api/types";
-
 interface UiState {
   /** 左侧工作区导航折叠状态。 */
   navCollapsed: boolean;

@@ -3,6 +3,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 
+import { ErrorState, toErrorStateValue } from "@/components/ui/error-state";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { listCitations } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
@@ -42,70 +43,91 @@ export function CitationDrawer({
   const selector = useUiStore((state) => state.citationDrawerSelector);
   const close = useUiStore((state) => state.closeCitationDrawer);
   const citationSelection = parseCitationSelection(selector);
-  const citations = useInfiniteQuery({
-    queryKey: queryKeys.citationsAll(conversationId, citationSelection?.messageId ?? ""),
-    initialPageParam: 1,
-    queryFn: ({ pageParam }) => {
-      if (!citationSelection) throw new Error("缺少引用消息标识");
-      return listCitations(conversationId, citationSelection.messageId, pageParam, 20);
-    },
-    enabled: citationSelection !== null,
-    getNextPageParam: (lastPage) =>
-      lastPage.page * lastPage.page_size < lastPage.total ? lastPage.page + 1 : undefined,
-  });
-  const citation = citations.data?.pages
-    .flatMap((page) => page.items)
-    .find((item) => item.rank === citationSelection?.rank);
-
-  useEffect(() => {
-    if (citationSelection && !citation && citations.hasNextPage && !citations.isFetchingNextPage) {
-      void citations.fetchNextPage();
-    }
-  }, [citation, citationSelection, citations]);
 
   return (
     <Sheet open={citationSelection !== null} onOpenChange={(open) => !open && close()}>
       <SheetContent side="right" aria-label="引用详情">
         <SheetTitle>引用详情</SheetTitle>
-        {citation ? (
-          <div className="space-y-3 text-sm">
-            <p className="font-medium">
-              [{citation.rank}] {citation.filename}
-            </p>
-            <SheetDescription>
-              {citation.source_type === "snapshot" ? "来源快照" : "当前来源"}
-              {citation.page ? ` · 第 ${citation.page} 页` : ""}
-              {citation.section ? ` · ${citation.section}` : ""}
-            </SheetDescription>
-            <blockquote className="border-l-2 border-primary/50 pl-3 text-muted-foreground">
-              {citation.content}
-            </blockquote>
-            {citation.source_type === "live" && citation.document_id && knowledgeBaseId ? (
-              <a
-                className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
-                href={`/knowledge-bases/${knowledgeBaseId}?document=${citation.document_id}`}
-              >
-                定位到资料
-              </a>
-            ) : null}
-          </div>
-        ) : citations.isError ? (
-          <div className="space-y-2">
-            <SheetDescription>引用详情加载失败，请检查网络后重试。</SheetDescription>
-            <button
-              type="button"
-              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-              onClick={() => void citations.refetch()}
-            >
-              重试
-            </button>
-          </div>
-        ) : citations.hasNextPage ? (
-          <SheetDescription>正在加载引用详情…</SheetDescription>
-        ) : (
-          <SheetDescription>未找到该引用。</SheetDescription>
-        )}
+        {citationSelection ? (
+          <CitationDrawerContent
+            conversationId={conversationId}
+            knowledgeBaseId={knowledgeBaseId}
+            citationSelection={citationSelection}
+          />
+        ) : null}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function CitationDrawerContent({
+  conversationId,
+  knowledgeBaseId,
+  citationSelection,
+}: {
+  conversationId: string;
+  knowledgeBaseId?: string;
+  citationSelection: CitationSelection;
+}) {
+  const { data, error, fetchNextPage, hasNextPage, isError, isFetchingNextPage, refetch } =
+    useInfiniteQuery({
+      queryKey: queryKeys.citationsAll(conversationId, citationSelection.messageId),
+      initialPageParam: 1,
+      queryFn: ({ pageParam }) =>
+        listCitations(conversationId, citationSelection.messageId, pageParam, 20),
+      getNextPageParam: (lastPage) =>
+        lastPage.page * lastPage.page_size < lastPage.total ? lastPage.page + 1 : undefined,
+    });
+  const citation = data?.pages
+    .flatMap((page) => page.items)
+    .find((item) => item.rank === citationSelection.rank);
+
+  useEffect(() => {
+    if (!citation && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
+    }
+  }, [citation, fetchNextPage, hasNextPage, isFetchingNextPage]);
+
+  return (
+    <>
+      {citation ? (
+        <div className="space-y-3 text-sm">
+          <p className="font-medium">
+            [{citation.rank}] {citation.filename}
+          </p>
+          <SheetDescription>
+            {citation.source_type === "snapshot" ? "来源快照" : "当前来源"}
+            {citation.page ? ` · 第 ${citation.page} 页` : ""}
+            {citation.section ? ` · ${citation.section}` : ""}
+          </SheetDescription>
+          <blockquote className="border-l-2 border-primary/50 pl-3 text-muted-foreground">
+            {citation.content}
+          </blockquote>
+          {citation.source_type === "live" && citation.document_id && knowledgeBaseId ? (
+            <a
+              className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+              href={`/knowledge-bases/${knowledgeBaseId}?document=${citation.document_id}`}
+            >
+              定位到资料
+            </a>
+          ) : null}
+        </div>
+      ) : isError ? (
+        <div className="space-y-2">
+          <ErrorState error={toErrorStateValue(error, "引用详情加载失败，请检查网络后重试。")} />
+          <button
+            type="button"
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            onClick={() => void refetch()}
+          >
+            重试
+          </button>
+        </div>
+      ) : hasNextPage ? (
+        <SheetDescription>正在加载引用详情…</SheetDescription>
+      ) : (
+        <SheetDescription>未找到该引用。</SheetDescription>
+      )}
+    </>
   );
 }

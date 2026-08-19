@@ -14,7 +14,7 @@ import { queryKeys } from "@/lib/query-keys";
 import type { Document } from "@/lib/api/types";
 
 /**
- * T135 [P] Query Provider 单元测试（先写后验）。
+ * T135 [P] Query Provider 单元测试。
  *
  * 覆盖（ui-design §6.1/6.2）：
  * - makeQueryClient 默认策略：mutation 不自动重试非幂等写请求、查询有限重试、关闭窗口聚焦重取；

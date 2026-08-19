@@ -1,19 +1,21 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DeleteDocumentDialog } from "@/features/documents/DeleteDocumentDialog";
+import { DocumentStatus } from "@/features/documents/DocumentStatus";
 import { useDeleteDocument, useDocumentDetail } from "@/features/documents/queries";
-import { isTombstone, statusLabel } from "@/features/documents/status";
-import { queryKeys } from "@/lib/query-keys";
+import { isTombstone } from "@/features/documents/status";
+import { TaskHistory } from "@/features/documents/TaskHistory";
+import type { ResourceAction } from "@/lib/api/types";
 
 /**
  * 资料详情（T112/T138/FR-005/010/011）：完整 DTO 渲染与 DTO 驱动轮询。
  * 异步失败以 HTTP 200 + error_code/error_message 表达；allowed_actions 来自服务端；
- * 删除成功后重取详情，使删除收敛状态或 404 成为界面真相。
+ * 删除成功后立即关闭详情；资料已不可见时不得用 404 覆盖旧的详情缓存。
  */
 export function DocumentDetail({
   knowledgeBaseId,
@@ -26,22 +28,24 @@ export function DocumentDetail({
   pollIntervalMs?: number;
   onClose?: () => void;
 }) {
-  const queryClient = useQueryClient();
   const detail = useDocumentDetail(knowledgeBaseId, documentId, { pollIntervalMs });
   const deleteMutation = useDeleteDocument();
+  const [deleted, setDeleted] = useState(false);
   const doc = detail.data;
 
-  const onDelete = async () => {
+  const onDelete = async (action: ResourceAction) => {
     if (!doc) return;
+    if (!doc.allowed_actions.includes(action)) return;
     try {
       await deleteMutation.mutateAsync({ knowledgeBaseId, documentId: doc.id });
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.documentDetail(knowledgeBaseId, doc.id),
-      });
+      setDeleted(true);
+      onClose?.();
     } catch {
       // 错误已由 mutation.error 呈现
     }
   };
+
+  if (deleted) return null;
 
   if (detail.error && !doc) return <ErrorState error={detail.error} />;
   if (!doc) {
@@ -51,24 +55,37 @@ export function DocumentDetail({
 
   const error = detail.error ?? deleteMutation.error;
 
+  if (isTombstone(doc)) {
+    return (
+      <section aria-label="资料详情" className="space-y-2 rounded-md border px-3 py-2">
+        {error ? <ErrorState error={error} /> : null}
+        <div className="flex items-center justify-end gap-2">
+          <DeleteDocumentDialog
+            document={doc}
+            pending={deleteMutation.isPending}
+            onDelete={(action) => onDelete(action)}
+          />
+          {onClose ? (
+            <Button variant="ghost" onClick={onClose}>
+              关闭
+            </Button>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section aria-label="资料详情" className="space-y-2 rounded-md border px-3 py-2">
       {error ? <ErrorState error={error} /> : null}
       <div className="flex items-center justify-between gap-2">
         <h3 className="truncate font-medium">{doc.filename}</h3>
         <div className="flex shrink-0 gap-2">
-          {isTombstone(doc) ? (
-            <>
-              <span className="text-sm font-medium text-destructive">删除未完成</span>
-              <Button variant="destructive" onClick={() => void onDelete()}>
-                重试删除
-              </Button>
-            </>
-          ) : doc.allowed_actions.includes("delete") ? (
-            <Button variant="destructive" onClick={() => void onDelete()}>
-              删除
-            </Button>
-          ) : null}
+          <DeleteDocumentDialog
+            document={doc}
+            pending={deleteMutation.isPending}
+            onDelete={(action) => onDelete(action)}
+          />
           {onClose ? (
             <Button variant="ghost" onClick={onClose}>
               关闭
@@ -80,9 +97,7 @@ export function DocumentDetail({
         <div>
           <dt className="text-muted-foreground">状态</dt>
           <dd>
-            <Badge variant={isTombstone(doc) ? "destructive" : "secondary"}>
-              {statusLabel(doc.status)}
-            </Badge>
+            <DocumentStatus document={doc} />
           </dd>
         </div>
         <div>
@@ -111,6 +126,7 @@ export function DocumentDetail({
           错误码 {doc.error_code}：{doc.error_message}
         </p>
       ) : null}
+      <TaskHistory knowledgeBaseId={knowledgeBaseId} documentId={doc.id} />
     </section>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Library, PanelLeftClose, PanelLeftOpen, User } from "lucide-react";
+import { Library, MessageSquareText, PanelLeftClose, PanelLeftOpen, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
@@ -17,9 +17,10 @@ interface NavItem {
   icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }
 
-/** 工作区导航项：随阶段扩展（阶段 9 增加对话，阶段 10 增加处理任务）。 */
+/** 工作区导航项。 */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/knowledge-bases", label: "知识库", icon: Library },
+  { href: "/conversations", label: "对话", icon: MessageSquareText },
   { href: "/profile", label: "个人资料", icon: User },
 ];
 

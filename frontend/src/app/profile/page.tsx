@@ -1,8 +1,9 @@
-"use client";
-
+import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell/AppShell";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { ProfileForm } from "@/features/profile/ProfileForm";
+
+export const metadata: Metadata = { title: "个人资料 | OrionaMesh" };
 
 export default function ProfilePage() {
   return (

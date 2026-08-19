@@ -1,14 +1,26 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 
 /**
  * OrionaMesh 前端构建配置。
  *
  * - `output: "standalone"`：供 `deploy/docker/frontend.Dockerfile`（T098）复制最小
  *   运行时（.next/standalone）使用；本地开发不受影响。
- * - 不在此处配置后端地址：前端只通过 `NEXT_PUBLIC_API_BASE_URL` 访问 `/v1` 契约。
+ * - 浏览器始终通过同源 `/v1` 访问契约；仅 pnpm dev 代理到本机 API，生产保持 Nginx 同源转发。
  */
-const nextConfig: NextConfig = {
-  output: "standalone",
-};
+export default function nextConfig(phase: string): NextConfig {
+  const developmentApiUpstream = process.env.ORIONAMESH_API_DEV_UPSTREAM ?? "http://127.0.0.1:8000";
 
-export default nextConfig;
+  return {
+    output: "standalone",
+    async rewrites() {
+      if (phase !== PHASE_DEVELOPMENT_SERVER) return [];
+      return [
+        {
+          source: "/v1/:path*",
+          destination: `${developmentApiUpstream}/v1/:path*`,
+        },
+      ];
+    },
+  };
+}

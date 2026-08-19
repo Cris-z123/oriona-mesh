@@ -56,6 +56,9 @@ export type DocumentStatus = "pending" | "queued" | "processing" | "completed" |
 export type DocumentTaskType =
   "parse" | "chunk" | "embed" | "finalize" | "cleanup" | "delete_cleanup";
 export type DocumentFileType = "pdf" | "docx" | "md" | "txt";
+export type DocumentTaskStatus =
+  "pending" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type DocumentTaskAttemptStatus = "running" | "succeeded" | "failed" | "cancelled";
 
 /** 资料列表的非敏感视图偏好：状态过滤（"all" 表示不过滤）。 */
 export type DocumentStatusFilter = DocumentStatus | "all";
@@ -83,6 +86,42 @@ export interface Document {
   created_at: string;
   updated_at: string;
   allowed_actions: ResourceAction[];
+}
+
+/** 资料处理尝试：字段与 DocumentTaskAttempt 契约一一对应。 */
+export interface DocumentTaskAttempt {
+  id: string;
+  task_id: string;
+  attempt_no: number;
+  worker_name: string | null;
+  status: DocumentTaskAttemptStatus;
+  started_at: string;
+  finished_at: string | null;
+  error_message: string | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+/** 资料处理任务：服务端状态、进度、失败原因和尝试记录均为唯一真相。 */
+export interface DocumentTask {
+  id: string;
+  document_id: string;
+  document_version: number;
+  task_type: DocumentTaskType;
+  delete_cycle: number;
+  status: DocumentTaskStatus;
+  retry_count: number;
+  max_retries: number;
+  total_items: number | null;
+  processed_items: number;
+  error_code: number | null;
+  error_message: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+  attempts: DocumentTaskAttempt[];
 }
 
 /** 批量上传 202 结果；每项只能是 queued 或 failed/20011。 */

@@ -187,6 +187,7 @@ describe("US2 会话必须绑定知识库", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "删除对话 旧标题" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(api.deleteConversation).toHaveBeenCalledWith(conversation.id));
   });
 
@@ -217,6 +218,7 @@ describe("US2 会话必须绑定知识库", () => {
       target: { value: knowledgeBase.id },
     });
     fireEvent.click(await screen.findByRole("button", { name: "删除对话 未命名对话" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 
     await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith(null));
   });
@@ -228,7 +230,10 @@ describe("US2 会话必须绑定知识库", () => {
       page_size: 20,
       total: 1,
     });
-    api.listConversations.mockRejectedValue(new Error("network"));
+    api.listConversations.mockRejectedValue({
+      msg: "无法加载对话",
+      traceId: "trace-conversations",
+    });
 
     renderWithProviders(<ConversationList />);
     await screen.findByRole("option", { name: "产品研究" });
@@ -237,6 +242,7 @@ describe("US2 会话必须绑定知识库", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("无法加载对话");
+    expect(screen.getByRole("alert")).toHaveTextContent("trace_id: trace-conversations");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     await waitFor(() => expect(api.listConversations).toHaveBeenCalledTimes(2));
   });
@@ -593,6 +599,11 @@ describe("US2 消息流生命周期与排序", () => {
     view.rerender(<MessageThread conversationId="88888888-8888-4888-8888-888888888888" />);
 
     expect(signal?.aborted).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "输入问题" }), {
+      target: { value: "新会话可以继续提问" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
   });
 
   it("SSE 在未收到终态事件时收敛为可理解的失败反馈", async () => {
@@ -701,7 +712,10 @@ describe("US2 引用", () => {
   });
 
   it("引用详情请求失败时提供重试入口", async () => {
-    api.listCitations.mockRejectedValue(new Error("network"));
+    api.listCitations.mockRejectedValue({
+      msg: "引用详情加载失败，请检查网络后重试。",
+      traceId: "trace-citation",
+    });
     renderWithProviders(
       <>
         <CitationCard messageId={assistantMessage.id} citations={[liveCitation]} />
@@ -711,6 +725,7 @@ describe("US2 引用", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /查看引用.*客户访谈纪要.pdf/ }));
     expect(await screen.findByText("引用详情加载失败，请检查网络后重试。")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("trace_id: trace-citation");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     await waitFor(() => expect(api.listCitations).toHaveBeenCalledTimes(2));
   });

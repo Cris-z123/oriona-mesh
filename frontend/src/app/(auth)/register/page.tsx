@@ -1,8 +1,9 @@
-"use client";
-
 import Link from "next/link";
+import type { Metadata } from "next";
 
 import { RegisterForm } from "@/features/auth/RegisterForm";
+
+export const metadata: Metadata = { title: "注册 | OrionaMesh" };
 
 export default function RegisterPage() {
   return (

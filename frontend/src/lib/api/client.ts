@@ -16,6 +16,7 @@ import type {
   Conversation,
   Document,
   DocumentStatus,
+  DocumentTask,
   DocumentUploadResult,
   KnowledgeBase,
   MessageCursorPage,
@@ -24,7 +25,7 @@ import type {
   User,
 } from "@/lib/api/types";
 
-const DEFAULT_BASE_URL = "http://localhost:8000/v1";
+const DEFAULT_BASE_URL = "/v1";
 const ERROR_CODE_SESSION_EXPIRED = 10001;
 const ERROR_CODE_INTERNAL = 50000;
 const INTERNAL_ERROR_MSG = "系统繁忙，请稍后再试";
@@ -412,6 +413,19 @@ export async function deleteDocument(knowledgeBaseId: string, documentId: string
   });
 }
 
+/** 获取资料处理任务及其尝试记录；DTO 内的状态与错误码直接供界面呈现。 */
+export async function listDocumentTasks(
+  knowledgeBaseId: string,
+  documentId: string,
+  page = 1,
+  pageSize = 20
+): Promise<Page<DocumentTask>> {
+  const envelope = await request<Page<DocumentTask>>(
+    `/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/tasks?${qs({ page, page_size: pageSize })}`
+  );
+  return envelope.data;
+}
+
 /** 契约格式：^[A-Za-z0-9._:-]{8,128}$（openapi Idempotency-Key）。 */
 export function generateIdempotencyKey(): string {
   const bytes = new Uint8Array(16);
@@ -542,5 +556,3 @@ function dispatchFrame(
   if (!isEnvelope(raw)) return;
   onEvent(event, raw as ApiEnvelope<Record<string, unknown>>);
 }
-
-// 会话类型由调用方从 @/lib/api/session 直接导入。
