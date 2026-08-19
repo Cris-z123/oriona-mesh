@@ -307,10 +307,10 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ## 阶段 11：文档与跨切面收尾
 
-- [ ] T122 [P] 更新开发环境、uv/根 pnpm 锁文件、持久卷、解析器、处理并发、上传幂等、可信代理限流、模型网关、GitHub Release 镜像归档部署与回滚（`scripts/deploy.sh`，服务器不构建、不访问 GHCR）说明于 `README.md`
-- [ ] T123 [P] 执行并记录快速验证清单的最终结果于 `specs/001-orionamesh-rag-mvp/quickstart.md`
-- [ ] T124 审查普通日志、模型调用审计、响应、SSE 和引用快照，确认不含 password/token/secret_key、请求/响应 payload、提示词、问题、片段、文件名、请求头或已删除原始资料于 `backend/app/core/logging.py`、`backend/app/infrastructure/model_gateway/audit.py`、`frontend/src/lib/logging/server.ts`、`backend/tests/integration/test_backend_gate.py`
-- [ ] T125 运行全部确定性后端与前端测试、迁移、OpenAPI/模型出口契约、上传超时接管、阶段编排、写入 fencing、有界资料/知识库删除、删除失败墓碑与下一轮清理历史、解析安全、处理并发、持久卷、架构边界、限流/出口安全、质量工具与 Compose 验证，并记录结果于 `specs/001-orionamesh-rag-mvp/quickstart.md`
+- [x] T122 [P] 更新开发环境、uv/根 pnpm 锁文件、持久卷、解析器、处理并发、上传幂等、可信代理限流、模型网关、GitHub Release 镜像归档部署与回滚（`scripts/deploy.sh`，服务器不构建、不访问 GHCR）说明于 `README.md`
+- [x] T123 [P] 执行并记录快速验证清单的最终结果于 `specs/001-orionamesh-rag-mvp/quickstart.md`（见「阶段 11 收尾验证记录」）
+- [x] T124 审查普通日志、模型调用审计、响应、SSE 和引用快照，确认不含 password/token/secret_key、请求/响应 payload、提示词、问题、片段、文件名、请求头或已删除原始资料于 `backend/app/core/logging.py`、`backend/app/infrastructure/model_gateway/audit.py`、`frontend/src/lib/logging/server.ts`、`backend/tests/integration/test_backend_gate.py`（审查通过，无代码变更；白名单由单元/集成/契约测试持续断言）
+- [x] T125 运行全部确定性后端与前端测试、迁移、OpenAPI/模型出口契约、上传超时接管、阶段编排、写入 fencing、有界资料/知识库删除、删除失败墓碑与下一轮清理历史、解析安全、处理并发、持久卷、架构边界、限流/出口安全、质量工具与 Compose 验证，并记录结果于 `specs/001-orionamesh-rag-mvp/quickstart.md`（747 passed/2 skipped + 168 passed/1 skipped + 前端 92+7 + 完整 Compose 冒烟 1 passed；随附修复 `scripts/check-backend.sh` 相对路径与交付栈冒烟 dockerfile 路径/就绪竞态）
 
 ## 评审修复（T126–T131）
 

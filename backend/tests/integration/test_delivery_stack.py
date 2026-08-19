@@ -317,6 +317,9 @@ def _build_release_images() -> None:
         ("orionamesh-frontend:sha-test", "deploy/docker/frontend.Dockerfile"),
     )
     for tag, dockerfile in builds:
+        # dockerfile 必须用绝对路径：docker CLI 把相对路径按进程 cwd 解析，
+        # 而本测试可能从仓库根或 backend/ 任一目录启动。
+        absolute_dockerfile = str(REPO_ROOT / dockerfile)
         result = subprocess.run(
             [
                 "docker",
@@ -326,7 +329,7 @@ def _build_release_images() -> None:
                 "-t",
                 tag,
                 "-f",
-                dockerfile,
+                absolute_dockerfile,
                 str(REPO_ROOT),
             ],
             capture_output=True,
@@ -338,16 +341,25 @@ def _build_release_images() -> None:
             raise AssertionError(f"预置 Release 镜像 {tag} 失败:\n{result.stderr}")
 
 
-def _assert_api_ready() -> None:
-    result = _compose(
-        "exec",
-        "-T",
-        "api",
-        "python",
-        "-c",
-        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)",
-    )
-    assert result.returncode == 0, result.stderr
+def _assert_api_ready(timeout: float = 60.0) -> None:
+    """Compose 内探测 API /ready；容器启动到 uvicorn 监听存在窗口，失败需重试。"""
+    deadline = time.monotonic() + timeout
+    last_error: str | None = None
+    while time.monotonic() < deadline:
+        result = _compose(
+            "exec",
+            "-T",
+            "api",
+            "python",
+            "-c",
+            "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)",
+            check=False,
+        )
+        if result.returncode == 0:
+            return
+        last_error = result.stderr
+        time.sleep(2)
+    raise AssertionError(f"api /ready 未在 {timeout:.0f}s 内就绪: {last_error}")
 
 
 @pytest.mark.skipif(
