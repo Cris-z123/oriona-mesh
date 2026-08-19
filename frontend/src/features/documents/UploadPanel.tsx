@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
-import { ApiErrorNotice } from "@/components/ApiErrorNotice";
+import { ErrorState } from "@/components/ui/error-state";
 import { Label } from "@/components/ui/label";
 import { ApiError, asApiError, generateIdempotencyKey, uploadDocuments } from "@/lib/api/client";
 import { UPLOAD_LIMITS } from "@/lib/api/types";
@@ -130,7 +130,7 @@ export function UploadPanel({
           {hint}
         </p>
       ) : null}
-      {error ? <ApiErrorNotice error={error} /> : null}
+      {error ? <ErrorState error={error} /> : null}
       <p className="text-xs text-muted-foreground">
         单文件最大 50MB，单次最多 20 个；仅支持 PDF、DOCX、MD 和 TXT。
       </p>

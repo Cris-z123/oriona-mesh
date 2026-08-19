@@ -1,19 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
-import { ApiErrorNotice } from "@/components/ApiErrorNotice";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ApiError, asApiError, deleteDocument, listDocuments } from "@/lib/api/client";
-import type { Document, DocumentStatus } from "@/lib/api/types";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { queryKeys } from "@/lib/query-keys";
+import type { Document } from "@/lib/api/types";
 import { DocumentDetail } from "@/features/documents/DocumentDetail";
-import { isInFlight, isTombstone, statusLabel } from "@/features/documents/status";
+import { useDeleteDocument, useDocumentList } from "@/features/documents/queries";
+import { isTombstone, statusLabel } from "@/features/documents/status";
+import { useUiStore, type DocumentStatusFilter } from "@/stores/ui-store";
 
 const PAGE_SIZE = 20;
 
 /**
- * 资料列表（T112/FR-005/010/011）：页码/状态列表、失败原因与 allowed_actions 渲染；
- * 存在处理中资料时按 pollIntervalMs 轮询直到全部终态；
+ * 资料列表（T112/T138/FR-005/010/011）：页码/状态列表、失败原因与 allowed_actions 渲染。
+ * 数据由统一 Query 封装管理：存在处理中资料时按 pollIntervalMs 轮询直到全部终态；
+ * 状态过滤是非敏感视图偏好，保存在 UI store；
  * 20015 墓碑只显示最小“删除未完成”与重试删除，不作为普通失败资料展示。
  */
 export function DocumentList({
@@ -23,64 +37,32 @@ export function DocumentList({
   knowledgeBaseId: string;
   pollIntervalMs?: number;
 }) {
-  const [items, setItems] = useState<Document[]>([]);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<DocumentStatus | "all">("all");
-  const [error, setError] = useState<ApiError | null>(null);
-  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  const statusFilter = useUiStore((state) => state.documentStatusFilter);
+  const setStatusFilter = useUiStore((state) => state.setDocumentStatusFilter);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listDocuments(
-        knowledgeBaseId,
-        page,
-        PAGE_SIZE,
-        statusFilter === "all" ? undefined : statusFilter
-      );
-      setItems(result.items);
-      setTotal(result.total);
-      setError(null);
-    } catch (err) {
-      setError(asApiError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [knowledgeBaseId, page, statusFilter]);
+  const list = useDocumentList(knowledgeBaseId, page, PAGE_SIZE, statusFilter, {
+    pollIntervalMs,
+  });
+  const deleteMutation = useDeleteDocument();
 
-  useEffect(() => {
-    // 延迟到宏任务：load 同步前缀含 setLoading，react-hooks/set-state-in-effect
-    // 要求 effect 内不得同步 setState；加载由本 effect 统一触发，避免重复请求
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load, reloadKey]);
-
-  useEffect(() => {
-    if (items.some((doc) => isInFlight(doc.status))) {
-      const timer = setTimeout(() => {
-        void load();
-      }, pollIntervalMs);
-      return () => clearTimeout(timer);
-    }
-  }, [items, load, pollIntervalMs]);
+  const items = list.data?.items ?? [];
+  const total = list.data?.total ?? 0;
+  const error = list.error ?? deleteMutation.error;
 
   const onDelete = async (doc: Document) => {
-    setError(null);
     try {
-      await deleteDocument(knowledgeBaseId, doc.id);
-      // 末页最后一项删除后回退一页，避免停留在空页
+      await deleteMutation.mutateAsync({ knowledgeBaseId, documentId: doc.id });
+      // 末页最后一项删除后回退一页（键变更后按挂载重取过期数据）
       if (items.length === 1 && page > 1) {
         setPage((p) => p - 1);
       } else {
-        setReloadKey((k) => k + 1);
+        await queryClient.refetchQueries({ queryKey: queryKeys.documents(knowledgeBaseId) });
       }
-    } catch (err) {
-      setError(asApiError(err));
+    } catch {
+      // 错误已由 mutation.error 呈现
     }
   };
 
@@ -88,59 +70,76 @@ export function DocumentList({
 
   return (
     <div className="space-y-4">
-      {error ? <ApiErrorNotice error={error} /> : null}
+      {error ? <ErrorState error={error} /> : null}
 
       <div className="flex items-center gap-2">
-        <select
-          aria-label="状态过滤"
+        <Select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as DocumentStatus | "all")}
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          onValueChange={(v) => setStatusFilter(v as DocumentStatusFilter)}
         >
-          <option value="all">全部状态</option>
-          <option value="pending">待处理</option>
-          <option value="queued">排队中</option>
-          <option value="processing">处理中</option>
-          <option value="completed">已完成</option>
-          <option value="failed">失败</option>
-        </select>
+          <SelectTrigger aria-label="状态过滤" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部状态</SelectItem>
+            <SelectItem value="pending">待处理</SelectItem>
+            <SelectItem value="queued">排队中</SelectItem>
+            <SelectItem value="processing">处理中</SelectItem>
+            <SelectItem value="completed">已完成</SelectItem>
+            <SelectItem value="failed">失败</SelectItem>
+          </SelectContent>
+        </Select>
         <span className="text-sm text-muted-foreground">共 {total} 份资料</span>
       </div>
 
-      <ul className="space-y-2">
-        {items.map((doc) => (
-          <li key={doc.id} className="rounded-md border px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{doc.filename}</p>
-                {!isTombstone(doc) ? (
-                  <p className="text-sm text-muted-foreground">{statusLabel(doc.status)}</p>
-                ) : null}
-                {doc.status === "failed" && doc.error_message ? (
-                  <p className="text-sm text-destructive">{doc.error_message}</p>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 gap-2">
-                {isTombstone(doc) ? (
-                  <>
-                    <span className="text-sm font-medium text-destructive">删除未完成</span>
+      {list.isLoading ? (
+        <ul className="space-y-2" aria-label="加载中">
+          {[0, 1, 2].map((i) => (
+            <li key={i}>
+              <Skeleton className="h-14 w-full" />
+            </li>
+          ))}
+        </ul>
+      ) : items.length === 0 ? (
+        <EmptyState title="暂无资料" description="上传第一份资料后在此查看处理状态" />
+      ) : (
+        <ul className="space-y-2" aria-busy={list.isFetching || undefined}>
+          {items.map((doc) => (
+            <li key={doc.id} className="rounded-md border px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{doc.filename}</p>
+                  {!isTombstone(doc) ? (
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <Badge variant="secondary">{statusLabel(doc.status)}</Badge>
+                    </div>
+                  ) : null}
+                  {doc.status === "failed" && doc.error_message ? (
+                    <p className="text-sm text-destructive">{doc.error_message}</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  {isTombstone(doc) ? (
+                    <>
+                      <span className="text-sm font-medium text-destructive">删除未完成</span>
+                      <Button variant="destructive" onClick={() => void onDelete(doc)}>
+                        重试删除
+                      </Button>
+                    </>
+                  ) : doc.allowed_actions.includes("delete") ? (
                     <Button variant="destructive" onClick={() => void onDelete(doc)}>
-                      重试删除
+                      删除
                     </Button>
-                  </>
-                ) : doc.allowed_actions.includes("delete") ? (
-                  <Button variant="destructive" onClick={() => void onDelete(doc)}>
-                    删除
+                  ) : null}
+                  <Button variant="outline" onClick={() => setSelectedId(doc.id)}>
+                    详情
                   </Button>
-                ) : null}
-                <Button variant="outline" onClick={() => setSelectedId(doc.id)}>
-                  详情
-                </Button>
+                </div>
               </div>
-            </div>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {selectedId ? (
         <DocumentDetail
@@ -153,7 +152,7 @@ export function DocumentList({
       <div className="flex items-center gap-2 text-sm">
         <Button
           variant="outline"
-          disabled={page <= 1 || loading}
+          disabled={page <= 1 || list.isFetching}
           onClick={() => setPage((p) => p - 1)}
         >
           上一页
@@ -163,7 +162,7 @@ export function DocumentList({
         </span>
         <Button
           variant="outline"
-          disabled={page >= totalPages || loading}
+          disabled={page >= totalPages || list.isFetching}
           onClick={() => setPage((p) => p + 1)}
         >
           下一页

@@ -21,6 +21,7 @@ interface AuthContextValue {
   /** 会话恢复完成（localStorage 检查 + /users/me 拉取）后为 true。 */
   ready: boolean;
   signOut: () => Promise<void>;
+  updateCurrentUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -37,27 +38,31 @@ function getServerSnapshot(): SessionState | null {
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const session = useSyncExternalStore(subscribeSession, getSession, getServerSnapshot);
+  const sessionKey = session ? `${session.accessToken}:${session.refreshToken}` : null;
 
-  const [meResult, setMeResult] = useState<
-    { status: "pending" } | { status: "done"; user: User | null }
-  >({ status: "pending" });
+  const [meResult, setMeResult] = useState<{
+    sessionKey: string | null;
+    status: "pending" | "done";
+    user: User | null;
+  }>({ sessionKey: null, status: "done", user: null });
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !sessionKey) return;
+
     let cancelled = false;
     let retryTimer: number | undefined;
     let retries = 0;
     const attempt = () => {
       getMe()
         .then((me) => {
-          if (!cancelled) setMeResult({ status: "done", user: me });
+          if (!cancelled) setMeResult({ sessionKey, status: "done", user: me });
         })
         .catch((err: unknown) => {
           if (cancelled) return;
           if (err instanceof ApiError && err.code === 10001) {
             // 会话已过期且无法恢复：清除本地会话，订阅回调会触发重定向
             clearSession();
-            setMeResult({ status: "done", user: null });
+            setMeResult({ sessionKey, status: "done", user: null });
             return;
           }
           // 瞬时错误：有界延迟重试，避免把有效会话误判为未登录
@@ -65,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (retries <= 2) {
             retryTimer = window.setTimeout(attempt, 2000);
           } else {
-            setMeResult({ status: "done", user: null });
+            setMeResult({ sessionKey, status: "done", user: null });
           }
         });
     };
@@ -74,16 +79,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [session]);
+  }, [session, sessionKey]);
 
-  const user = session && meResult.status === "done" ? meResult.user : null;
-  const ready = session ? meResult.status === "done" : true;
+  const isCurrentSession = sessionKey !== null && meResult.sessionKey === sessionKey;
+  const user = isCurrentSession && meResult.status === "done" ? meResult.user : null;
+  const ready = session ? isCurrentSession && meResult.status === "done" : true;
 
   const signOut = useCallback(async () => {
     await apiLogout();
   }, []);
 
-  const value = useMemo(() => ({ session, user, ready, signOut }), [session, user, ready, signOut]);
+  const updateCurrentUser = useCallback(
+    (updated: User) => {
+      if (!sessionKey) return;
+      setMeResult((current) =>
+        current.sessionKey === sessionKey ? { sessionKey, status: "done", user: updated } : current
+      );
+    },
+    [sessionKey]
+  );
+
+  const value = useMemo(
+    () => ({ session, user, ready, signOut, updateCurrentUser }),
+    [session, user, ready, signOut, updateCurrentUser]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthProvider } from "@/features/auth/AuthProvider";
+import { renderWithProviders } from "../helpers";
+import { AuthProvider, useAuth } from "@/features/auth/AuthProvider";
 import { LoginForm } from "@/features/auth/LoginForm";
 import { RegisterForm } from "@/features/auth/RegisterForm";
 import { RequireAuth } from "@/features/auth/RequireAuth";
@@ -278,6 +279,41 @@ describe("US1 认证", () => {
     );
     await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/login"));
   });
+
+  it("切换会话时不显示上一账号资料，直到新会话恢复完成", async () => {
+    const userB = { id: "u2", email: "b@example.com", display_name: "Bob" };
+    let resolveUserB: ((user: typeof userB) => void) | undefined;
+    api.getMe.mockResolvedValueOnce(USER).mockImplementationOnce(
+      () =>
+        new Promise<typeof userB>((resolve) => {
+          resolveUserB = resolve;
+        })
+    );
+
+    function AuthProbe() {
+      const { ready, user } = useAuth();
+      return <p>{ready ? (user?.email ?? "无用户") : "恢复中"}</p>;
+    }
+
+    setSession({ accessToken: "at-a", refreshToken: "rt-a", expiresAt: Date.now() + 100000 });
+    render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>
+    );
+    expect(await screen.findByText("a@example.com")).toBeInTheDocument();
+
+    act(() => {
+      setSession({ accessToken: "at-b", refreshToken: "rt-b", expiresAt: Date.now() + 100000 });
+    });
+    expect(screen.getByText("恢复中")).toBeInTheDocument();
+    expect(screen.queryByText("a@example.com")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveUserB?.(userB);
+    });
+    expect(await screen.findByText("b@example.com")).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -292,6 +328,7 @@ describe("US1 个人资料", () => {
     render(
       <AuthProvider>
         <ProfileForm />
+        <CurrentUserProbe />
       </AuthProvider>
     );
     const input = await screen.findByLabelText(/显示名/);
@@ -300,8 +337,14 @@ describe("US1 个人资料", () => {
     fireEvent.click(screen.getByRole("button", { name: /保存/ }));
     await waitFor(() => expect(api.updateMe).toHaveBeenCalledWith({ display_name: "Bob" }));
     await waitFor(() => expect(screen.getByLabelText(/显示名/)).toHaveValue("Bob"));
+    expect(screen.getByText("当前用户：Bob")).toBeInTheDocument();
   });
 });
+
+function CurrentUserProbe() {
+  const { user } = useAuth();
+  return <p>当前用户：{user?.display_name ?? "未加载"}</p>;
+}
 
 // ---------------------------------------------------------------------------
 // 知识库列表 / 删除墓碑 / 重试删除（FR-003）
@@ -310,7 +353,7 @@ describe("US1 个人资料", () => {
 describe("US1 知识库列表", () => {
   it("渲染 active 知识库与 delete_failed 最小墓碑，墓碑不显示名称/描述", async () => {
     api.listKnowledgeBases.mockResolvedValue(page([KB_ACTIVE, KB_TOMBSTONE]));
-    render(<KnowledgeBaseList />);
+    renderWithProviders(<KnowledgeBaseList />);
     expect(await screen.findByText("笔记")).toBeInTheDocument();
     expect(screen.getByText("日常笔记")).toBeInTheDocument();
     // 墓碑：仅最小“删除未完成”与重试删除；不得显示名称/描述或子资源入口
@@ -320,9 +363,12 @@ describe("US1 知识库列表", () => {
   });
 
   it("active 知识库仅允许删除操作；delete_failed 重试删除调用 DELETE", async () => {
-    api.listKnowledgeBases.mockResolvedValue(page([KB_ACTIVE, KB_TOMBSTONE]));
+    // 删除成功后列表重取：第二次返回相同数据，保证墓碑行在断言期间仍存在
+    api.listKnowledgeBases
+      .mockResolvedValueOnce(page([KB_ACTIVE, KB_TOMBSTONE]))
+      .mockResolvedValueOnce(page([KB_ACTIVE, KB_TOMBSTONE]));
     api.deleteKnowledgeBase.mockResolvedValue(undefined);
-    render(<KnowledgeBaseList />);
+    renderWithProviders(<KnowledgeBaseList />);
     await screen.findByText("笔记");
     // active 行：仅“删除”
     fireEvent.click(screen.getByRole("button", { name: /删除笔记/ }));
@@ -335,7 +381,7 @@ describe("US1 知识库列表", () => {
   it("创建知识库后刷新列表", async () => {
     api.listKnowledgeBases.mockResolvedValue(page([KB_ACTIVE]));
     api.createKnowledgeBase.mockResolvedValue(KB_ACTIVE);
-    render(<KnowledgeBaseList />);
+    renderWithProviders(<KnowledgeBaseList />);
     await screen.findByText("笔记");
     fireEvent.change(screen.getByLabelText(/知识库名称/), { target: { value: "新库" } });
     fireEvent.click(screen.getByRole("button", { name: /创建/ }));
@@ -419,10 +465,10 @@ describe("US1 资料列表", () => {
   it("轮询直到资料达到终态", async () => {
     api.listDocuments.mockResolvedValueOnce(page([doc({ status: "processing" })]));
     api.listDocuments.mockResolvedValueOnce(page([DOC_COMPLETED]));
-    render(<DocumentList knowledgeBaseId="kb-1" pollIntervalMs={200} />);
-    // 状态过滤下拉框也含“处理中/已完成”选项，限定 <p> 状态标签
-    expect(await screen.findByText("处理中", { selector: "p" })).toBeInTheDocument();
-    expect(await screen.findByText("已完成", { selector: "p" })).toBeInTheDocument();
+    renderWithProviders(<DocumentList knowledgeBaseId="kb-1" pollIntervalMs={200} />);
+    // 状态以徽章文本呈现（Radix Select 选项在打开前不进入 DOM，无需 selector 限定）
+    expect(await screen.findByText("处理中")).toBeInTheDocument();
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
     expect(api.listDocuments).toHaveBeenCalledTimes(2);
   });
 
@@ -430,7 +476,7 @@ describe("US1 资料列表", () => {
     api.listDocuments.mockResolvedValueOnce(page([DOC_FAILED, DOC_EMPTY]));
     api.listDocuments.mockResolvedValueOnce(page([]));
     api.deleteDocument.mockResolvedValue(undefined);
-    render(<DocumentList knowledgeBaseId="kb-1" />);
+    renderWithProviders(<DocumentList knowledgeBaseId="kb-1" />);
     expect(await screen.findByText("资料解析失败，请删除后重新上传")).toBeInTheDocument();
     expect(screen.getByText("资料内容为空，请删除后重新上传")).toBeInTheDocument();
     const deleteButtons = screen.getAllByRole("button", { name: /^删除$/ });
@@ -445,7 +491,7 @@ describe("US1 资料列表", () => {
     api.listDocuments.mockResolvedValueOnce(page([DOC_COMPLETED], 21)); // 第 2 页（仅 1 项）
     api.listDocuments.mockResolvedValueOnce(page([], 21)); // 回退后的第 1 页
     api.deleteDocument.mockResolvedValue(undefined);
-    render(<DocumentList knowledgeBaseId="kb-1" />);
+    renderWithProviders(<DocumentList knowledgeBaseId="kb-1" />);
     await screen.findByText("ok.pdf");
     fireEvent.click(screen.getByRole("button", { name: /下一页/ }));
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(2));
@@ -460,7 +506,7 @@ describe("US1 资料列表", () => {
   it("failed/delete_cleanup/20015 仅显示最小墓碑与重试删除，不作为普通失败资料", async () => {
     api.listDocuments.mockResolvedValue(page([DOC_TOMBSTONE]));
     api.deleteDocument.mockResolvedValue(undefined);
-    render(<DocumentList knowledgeBaseId="kb-1" />);
+    renderWithProviders(<DocumentList knowledgeBaseId="kb-1" />);
     expect(await screen.findByText("资料删除未完成，请重试删除")).toBeInTheDocument();
     const retry = screen.getByRole("button", { name: /重试删除/ });
     expect(screen.queryByRole("button", { name: /^删除$/ })).not.toBeInTheDocument();
@@ -472,12 +518,12 @@ describe("US1 资料列表", () => {
     api.getDocument
       .mockResolvedValueOnce(DOC_COMPLETED)
       .mockRejectedValueOnce(apiError(20007, "请求的资源不存在", 404));
-    render(<DocumentDetail knowledgeBaseId="kb-1" documentId="d-done" />);
+    renderWithProviders(<DocumentDetail knowledgeBaseId="kb-1" documentId="d-done" />);
     expect(await screen.findByText("ok.pdf")).toBeInTheDocument();
     expect(screen.getByText("已完成")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /删除/ })).toBeInTheDocument();
     // 切换到不可见资源：404 提示与 trace_id
-    render(<DocumentDetail knowledgeBaseId="kb-1" documentId="d-hidden" />);
+    renderWithProviders(<DocumentDetail knowledgeBaseId="kb-1" documentId="d-hidden" />);
     expect(await screen.findByText("请求的资源不存在")).toBeInTheDocument();
     expect(screen.getByText(`trace_id: ${TEST_TRACE_ID}`)).toBeInTheDocument();
   });

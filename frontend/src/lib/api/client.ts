@@ -235,13 +235,29 @@ export async function login(input: { email: string; password: string }): Promise
 
 /** 登出：Bearer 定位用户，请求体携带 refresh token；成功后清除本地会话。 */
 export async function logout(): Promise<void> {
-  const session = getSession();
-  if (!session) return;
   try {
-    await request<null>("/auth/sessions", {
-      method: "DELETE",
-      body: { refresh_token: session.refreshToken },
-    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const session = getSession();
+      if (!session) return;
+
+      const res = await fetch(`${baseUrl()}/auth/sessions`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        // 每次重试都读取当前会话，确保刷新轮换后撤销的是新建的后继会话。
+        body: JSON.stringify({ refresh_token: session.refreshToken }),
+      });
+      const envelope = await parseEnvelope<null>(res);
+      if (res.ok && envelope?.code === 0) return;
+
+      const canRefresh =
+        attempt === 0 && res.status === 401 && envelope?.code === ERROR_CODE_SESSION_EXPIRED;
+      if (canRefresh && (await refreshOnce())) continue;
+
+      throw toApiError(res.status, envelope, res.headers.get("Retry-After"));
+    }
   } finally {
     clearSession();
   }
