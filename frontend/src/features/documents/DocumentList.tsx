@@ -3,10 +3,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { Pagination, pageAfterDeletingLastItem } from "@/components/ui/pagination";
+import { DeleteDocumentDialog } from "@/features/documents/DeleteDocumentDialog";
 import {
   Select,
   SelectContent,
@@ -16,11 +17,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { queryKeys } from "@/lib/query-keys";
-import type { Document } from "@/lib/api/types";
+import type { Document, DocumentStatusFilter, ResourceAction } from "@/lib/api/types";
 import { DocumentDetail } from "@/features/documents/DocumentDetail";
+import { DocumentStatus } from "@/features/documents/DocumentStatus";
 import { useDeleteDocument, useDocumentList } from "@/features/documents/queries";
-import { isTombstone, statusLabel } from "@/features/documents/status";
-import { useUiStore, type DocumentStatusFilter } from "@/stores/ui-store";
+import { isTombstone } from "@/features/documents/status";
+import { useUiStore } from "@/stores/ui-store";
 
 const PAGE_SIZE = 20;
 
@@ -54,12 +56,13 @@ export function DocumentList({
   const total = list.data?.total ?? 0;
   const error = list.error ?? deleteMutation.error;
 
-  const onDelete = async (doc: Document) => {
+  const onDelete = async (doc: Document, action: ResourceAction) => {
+    if (!doc.allowed_actions.includes(action)) return;
     try {
       await deleteMutation.mutateAsync({ knowledgeBaseId, documentId: doc.id });
-      // 末页最后一项删除后回退一页（键变更后按挂载重取过期数据）
-      if (items.length === 1 && page > 1) {
-        setPage((p) => p - 1);
+      const nextPage = pageAfterDeletingLastItem(page, items.length);
+      if (nextPage !== page) {
+        setPage(nextPage);
       } else {
         await queryClient.refetchQueries({ queryKey: queryKeys.documents(knowledgeBaseId) });
       }
@@ -110,32 +113,29 @@ export function DocumentList({
             <li key={doc.id} className="rounded-md border px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-medium">{doc.filename}</p>
                   {!isTombstone(doc) ? (
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <Badge variant="secondary">{statusLabel(doc.status)}</Badge>
-                    </div>
+                    <>
+                      <p className="truncate font-medium">{doc.filename}</p>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        <DocumentStatus document={doc} />
+                      </div>
+                    </>
                   ) : null}
-                  {doc.status === "failed" && doc.error_message ? (
+                  {!isTombstone(doc) && doc.status === "failed" && doc.error_message ? (
                     <p className="text-sm text-destructive">{doc.error_message}</p>
                   ) : null}
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  {isTombstone(doc) ? (
-                    <>
-                      <span className="text-sm font-medium text-destructive">删除未完成</span>
-                      <Button variant="destructive" onClick={() => void onDelete(doc)}>
-                        重试删除
-                      </Button>
-                    </>
-                  ) : doc.allowed_actions.includes("delete") ? (
-                    <Button variant="destructive" onClick={() => void onDelete(doc)}>
-                      删除
+                  <DeleteDocumentDialog
+                    document={doc}
+                    pending={deleteMutation.isPending}
+                    onDelete={(action) => onDelete(doc, action)}
+                  />
+                  {!isTombstone(doc) ? (
+                    <Button variant="outline" onClick={() => setSelectedId(doc.id)}>
+                      详情
                     </Button>
                   ) : null}
-                  <Button variant="outline" onClick={() => setSelectedId(doc.id)}>
-                    详情
-                  </Button>
                 </div>
               </div>
             </li>
@@ -151,25 +151,12 @@ export function DocumentList({
         />
       ) : null}
 
-      <div className="flex items-center gap-2 text-sm">
-        <Button
-          variant="outline"
-          disabled={page <= 1 || list.isFetching}
-          onClick={() => setPage((p) => p - 1)}
-        >
-          上一页
-        </Button>
-        <span>
-          第 {page} / {totalPages} 页
-        </span>
-        <Button
-          variant="outline"
-          disabled={page >= totalPages || list.isFetching}
-          onClick={() => setPage((p) => p + 1)}
-        >
-          下一页
-        </Button>
-      </div>
+      <Pagination
+        page={page}
+        pageCount={totalPages}
+        isFetching={list.isFetching}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

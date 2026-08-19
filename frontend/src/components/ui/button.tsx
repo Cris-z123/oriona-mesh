@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -16,9 +16,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /** 基础按钮（shadcn/ui 风格；components.json aliases 指向本目录）。 */
-export function Button({ className, variant = "default", type = "button", ...props }: ButtonProps) {
-  return (
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = "default", type = "button", ...props }, ref) => (
     <button
+      ref={ref}
       type={type}
       className={cn(
         "inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
@@ -27,5 +28,6 @@ export function Button({ className, variant = "default", type = "button", ...pro
       )}
       {...props}
     />
-  );
-}
+  )
+);
+Button.displayName = "Button";

@@ -1,13 +1,15 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
+import { DangerousActionDialog } from "@/components/ui/dangerous-action-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Pagination, pageAfterDeletingLastItem } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { KnowledgeBase } from "@/lib/api/types";
 import {
@@ -28,6 +30,7 @@ const PAGE_SIZE = 20;
  */
 export function KnowledgeBaseList() {
   const queryClient = useQueryClient();
+  const deletingIdsRef = useRef(new Set<string>());
   const [page, setPage] = useState(1);
 
   const [createName, setCreateName] = useState("");
@@ -68,16 +71,21 @@ export function KnowledgeBaseList() {
   };
 
   const onDelete = async (kb: KnowledgeBase) => {
+    // React 状态的 pending 在同一事件循环内尚未更新；用 ref 拦截双击等同步重入。
+    if (deletingIdsRef.current.has(kb.id)) return;
+    deletingIdsRef.current.add(kb.id);
     try {
       await remove.mutateAsync(kb.id);
-      // 末页最后一项删除后回退一页（键变更后按挂载重取过期数据）
-      if (items.length === 1 && page > 1) {
-        setPage((p) => p - 1);
+      const nextPage = pageAfterDeletingLastItem(page, items.length);
+      if (nextPage !== page) {
+        setPage(nextPage);
       } else {
         await refreshList();
       }
     } catch {
       // 错误已由 mutation.error 呈现
+    } finally {
+      deletingIdsRef.current.delete(kb.id);
     }
   };
 
@@ -159,9 +167,14 @@ export function KnowledgeBaseList() {
                       知识库删除未完成，请重试删除（20015）
                     </p>
                   </div>
-                  <Button variant="destructive" onClick={() => void onDelete(kb)}>
-                    重试删除
-                  </Button>
+                  <DangerousActionDialog
+                    triggerLabel="重试删除"
+                    title="确认重试删除知识库"
+                    description="将重新执行知识库及其资料的删除清理。"
+                    confirmLabel="确认重试删除"
+                    pending={remove.isPending}
+                    onConfirm={() => onDelete(kb)}
+                  />
                 </div>
               </li>
             ) : editingId === kb.id ? (
@@ -206,9 +219,13 @@ export function KnowledgeBaseList() {
                     <Button variant="outline" onClick={() => startEdit(kb)}>
                       编辑
                     </Button>
-                    <Button variant="destructive" onClick={() => void onDelete(kb)}>
-                      删除{kb.name ?? ""}
-                    </Button>
+                    <DangerousActionDialog
+                      triggerLabel={`删除${kb.name ?? ""}`}
+                      title="确认删除知识库"
+                      description="删除后知识库及其资料将立即不可见，后台会继续清理派生数据。"
+                      pending={remove.isPending}
+                      onConfirm={() => onDelete(kb)}
+                    />
                   </div>
                 </div>
               </li>
@@ -217,25 +234,13 @@ export function KnowledgeBaseList() {
         </ul>
       )}
 
-      <div className="flex items-center gap-2 text-sm">
-        <Button
-          variant="outline"
-          disabled={page <= 1 || list.isFetching}
-          onClick={() => setPage((p) => p - 1)}
-        >
-          上一页
-        </Button>
-        <span>
-          第 {page} / {totalPages} 页，共 {total} 个
-        </span>
-        <Button
-          variant="outline"
-          disabled={page >= totalPages || list.isFetching}
-          onClick={() => setPage((p) => p + 1)}
-        >
-          下一页
-        </Button>
-      </div>
+      <Pagination
+        page={page}
+        pageCount={totalPages}
+        isFetching={list.isFetching}
+        onPageChange={setPage}
+        summary={`共 ${total} 个`}
+      />
     </div>
   );
 }

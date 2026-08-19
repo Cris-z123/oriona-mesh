@@ -17,22 +17,17 @@ export const queryKeys = {
   ) => [...queryKeys.documents(knowledgeBaseId), { page, pageSize, status }] as const,
   documentDetail: (knowledgeBaseId: string, documentId: string) =>
     [...queryKeys.documents(knowledgeBaseId), documentId] as const,
+  documentTasks: (knowledgeBaseId: string, documentId: string, page: number, pageSize: number) =>
+    [
+      ...queryKeys.documentDetail(knowledgeBaseId, documentId),
+      "tasks",
+      { page, pageSize },
+    ] as const,
   conversations: (knowledgeBaseId: string, page: number, pageSize: number) =>
     ["conversations", knowledgeBaseId, { page, pageSize }] as const,
   conversationsAll: () => ["conversations"] as const,
   conversationDetail: (conversationId: string) => ["conversations", conversationId] as const,
-  messages: (conversationId: string, before: string | undefined, limit: number) =>
-    ["conversations", conversationId, "messages", { before, limit }] as const,
   messagesAll: (conversationId: string) => ["conversations", conversationId, "messages"] as const,
-  citations: (conversationId: string, messageId: string, page: number, pageSize: number) =>
-    [
-      "conversations",
-      conversationId,
-      "messages",
-      messageId,
-      "citations",
-      { page, pageSize },
-    ] as const,
   citationsAll: (conversationId: string, messageId: string) =>
     ["conversations", conversationId, "messages", messageId, "citations"] as const,
 };

@@ -15,7 +15,7 @@ import { useUiStore } from "@/stores/ui-store";
 import type { ReactNode } from "react";
 
 /**
- * T134 [P] 前端共享 UI 基础组件测试（先写后验）。
+ * T134 [P] 前端共享 UI 基础组件测试。
  *
  * 覆盖：语义主题令牌（浅/深色 + prefers-reduced-motion）、桌面应用壳与键盘导航、
  * 抽屉焦点回归（Sheet 打开/焦点圈定/Escape 关闭/焦点回归）、
@@ -126,7 +126,12 @@ describe("AppShell 桌面应用壳与键盘导航", () => {
     // 品牌链接位于侧栏但不在 <nav> 地标内：按侧栏作用域断言视觉顺序
     const aside = screen.getByRole("complementary", { name: "工作区导航侧栏" });
     const links = within(aside).getAllByRole("link");
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/", "/knowledge-bases", "/profile"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "/",
+      "/knowledge-bases",
+      "/conversations",
+      "/profile",
+    ]);
     expect(screen.getByRole("link", { name: "知识库" })).toHaveAttribute("aria-current", "page");
   });
 

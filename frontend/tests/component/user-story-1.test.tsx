@@ -14,7 +14,7 @@ import { ProfileForm } from "@/features/profile/ProfileForm";
 import { clearSession, setSession } from "@/lib/api/session";
 
 /**
- * T107 [P] [US1] 用户故事 1 组件失败测试（先写后验）。
+ * T107 [P] [US1] 用户故事 1 组件测试。
  *
  * 覆盖：认证（登录/注册/会话恢复/受保护路由）、本人基本资料查看与更新、
  * 知识库列表与 delete_failed/20015 最小墓碑/重试删除、上传限制提示与幂等重放 409、
@@ -63,6 +63,7 @@ const api = vi.hoisted(() => {
     deleteKnowledgeBase: vi.fn(),
     listDocuments: vi.fn(),
     getDocument: vi.fn(),
+    listDocumentTasks: vi.fn(),
     deleteDocument: vi.fn(),
     uploadDocuments: vi.fn(),
     generateIdempotencyKey: vi.fn(() => "auto-key-0001"),
@@ -372,9 +373,11 @@ describe("US1 知识库列表", () => {
     await screen.findByText("笔记");
     // active 行：仅“删除”
     fireEvent.click(screen.getByRole("button", { name: /删除笔记/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^确认删除$/ }));
     await waitFor(() => expect(api.deleteKnowledgeBase).toHaveBeenCalledWith("kb-1"));
     // delete_failed 行：仅“重试删除”，重复请求不显示普通删除
     fireEvent.click(screen.getByRole("button", { name: /重试删除/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^确认重试删除$/ }));
     await waitFor(() => expect(api.deleteKnowledgeBase).toHaveBeenCalledWith("kb-2"));
   });
 
@@ -482,6 +485,7 @@ describe("US1 资料列表", () => {
     const deleteButtons = screen.getAllByRole("button", { name: /^删除$/ });
     expect(deleteButtons).toHaveLength(2);
     fireEvent.click(deleteButtons[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /^确认删除$/ }));
     await waitFor(() => expect(api.deleteDocument).toHaveBeenCalledWith("kb-1", "d-failed"));
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(2));
   });
@@ -497,6 +501,7 @@ describe("US1 资料列表", () => {
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(2));
     // 第 2 页上删除最后一项
     fireEvent.click(screen.getByRole("button", { name: /^删除$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^确认删除$/ }));
     await waitFor(() => expect(api.deleteDocument).toHaveBeenCalledWith("kb-1", "d-done"));
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(3));
     // 回退请求携带 page=1
@@ -511,6 +516,7 @@ describe("US1 资料列表", () => {
     const retry = screen.getByRole("button", { name: /重试删除/ });
     expect(screen.queryByRole("button", { name: /^删除$/ })).not.toBeInTheDocument();
     fireEvent.click(retry);
+    fireEvent.click(screen.getByRole("button", { name: /^确认重试删除$/ }));
     await waitFor(() => expect(api.deleteDocument).toHaveBeenCalledWith("kb-1", "d-tomb"));
   });
 
@@ -526,5 +532,23 @@ describe("US1 资料列表", () => {
     renderWithProviders(<DocumentDetail knowledgeBaseId="kb-1" documentId="d-hidden" />);
     expect(await screen.findByText("请求的资源不存在")).toBeInTheDocument();
     expect(screen.getByText(`trace_id: ${TEST_TRACE_ID}`)).toBeInTheDocument();
+  });
+
+  it("资料删除成功后关闭详情，不以 404 重取保留旧资料", async () => {
+    api.getDocument.mockResolvedValue(DOC_COMPLETED);
+    api.listDocumentTasks.mockResolvedValue(page([]));
+    api.deleteDocument.mockResolvedValue(undefined);
+    const onClose = vi.fn();
+
+    renderWithProviders(
+      <DocumentDetail knowledgeBaseId="kb-1" documentId="d-done" onClose={onClose} />
+    );
+    await screen.findByText("ok.pdf");
+    fireEvent.click(screen.getByRole("button", { name: /^删除$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^确认删除$/ }));
+
+    await waitFor(() => expect(api.deleteDocument).toHaveBeenCalledWith("kb-1", "d-done"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(api.getDocument).toHaveBeenCalledTimes(1);
   });
 });

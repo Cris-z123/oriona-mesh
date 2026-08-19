@@ -4,7 +4,20 @@ import { AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { ApiError } from "@/lib/api/client";
+export interface ErrorStateValue {
+  msg: string;
+  traceId: string | null;
+}
+
+/** 将未知请求异常收敛为安全展示值；存在服务端 msg 时始终优先使用。 */
+export function toErrorStateValue(error: unknown, fallbackMessage: string): ErrorStateValue {
+  const value = typeof error === "object" && error !== null ? error : {};
+  const record = value as Record<string, unknown>;
+  return {
+    msg: typeof record.msg === "string" ? record.msg : fallbackMessage,
+    traceId: typeof record.traceId === "string" ? record.traceId : null,
+  };
+}
 
 /** 复制反馈展示时长（毫秒），避免“已复制追踪 ID”常驻。 */
 const COPIED_RESET_MS = 2_000;
@@ -13,7 +26,7 @@ const COPIED_RESET_MS = 2_000;
  * 统一可恢复错误提示（ui-design §5/§6.2）：展示服务端 msg 与可复制 trace_id，
  * 不展示原始响应、令牌或堆栈；状态同时通过图标与文字表达。
  */
-export function ErrorState({ error }: { error: ApiError }) {
+export function ErrorState({ error }: { error: ErrorStateValue }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {

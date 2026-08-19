@@ -4,7 +4,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { DangerousActionDialog } from "@/components/ui/dangerous-action-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState, toErrorStateValue } from "@/components/ui/error-state";
+import { Pagination } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   createConversation,
@@ -104,11 +107,10 @@ export function ConversationList({
       ) : conversations.isLoading ? (
         <Skeleton className="h-32 w-full" aria-label="正在加载对话" />
       ) : conversations.isError ? (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
-        >
-          无法加载对话。请检查网络后重试。
+        <div className="space-y-2">
+          <ErrorState
+            error={toErrorStateValue(conversations.error, "无法加载对话，请检查网络后重试。")}
+          />
           <Button className="ml-2" variant="outline" onClick={() => void conversations.refetch()}>
             重试
           </Button>
@@ -161,15 +163,14 @@ export function ConversationList({
                 >
                   重命名
                 </Button>
-                <Button
-                  variant="ghost"
-                  className="h-8 px-2 text-destructive"
-                  aria-label={`删除对话 ${conversation.title || "未命名对话"}`}
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate(conversation.id)}
-                >
-                  删除
-                </Button>
+                <DangerousActionDialog
+                  triggerLabel="删除"
+                  triggerAriaLabel={`删除对话 ${conversation.title || "未命名对话"}`}
+                  title="确认删除对话"
+                  description="删除后该对话及其消息将不可恢复。"
+                  pending={remove.isPending}
+                  onConfirm={() => remove.mutateAsync(conversation.id)}
+                />
               </div>
             </li>
           ))}
@@ -177,23 +178,12 @@ export function ConversationList({
       )}
 
       {knowledgeBaseId && pageCount > 1 ? (
-        <nav className="flex items-center gap-2" aria-label="对话分页">
-          <Button
-            variant="outline"
-            disabled={page === 1}
-            onClick={() => setPage((value) => value - 1)}
-          >
-            上一页
-          </Button>
-          <span className="text-sm text-muted-foreground">第 {page} 页</span>
-          <Button
-            variant="outline"
-            disabled={page >= pageCount}
-            onClick={() => setPage((value) => value + 1)}
-          >
-            下一页
-          </Button>
-        </nav>
+        <Pagination
+          page={page}
+          pageCount={pageCount}
+          isFetching={conversations.isFetching}
+          onPageChange={setPage}
+        />
       ) : null}
     </section>
   );

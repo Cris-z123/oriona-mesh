@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useUiStore } from "@/stores/ui-store";
 
 /**
- * T135 [P] Zustand UI store 单元测试（先写后验）。
+ * T135 [P] Zustand UI store 单元测试。
  *
  * 职责边界（ui-design §6.1）：只保存短生命周期客户端 UI 状态——
  * 导航折叠、引用抽屉选择器、非敏感视图偏好；

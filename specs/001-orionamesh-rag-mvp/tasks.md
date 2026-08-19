@@ -293,13 +293,13 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ### 先写测试与替身
 
-- [ ] T118 [P] [US3] 编写完整 DocumentTask DTO、异步失败码、失败终态、删除确认、`20015` 删除未完成墓碑/重试删除与不可见重处理入口组件失败测试于 `frontend/tests/component/user-story-3.test.tsx`
-- [ ] T119 [US3] 配置前后端契约替身与浏览器端到端测试环境于 `frontend/tests/e2e/fixtures/api.ts`、`frontend/playwright.config.ts`
-- [ ] T120 [US3] 编写认证、本人基本资料查看/更新、上传重放、限流、轮询、空文档失败删除、资料与知识库删除中重复 DELETE 无副作用、`delete_failed/20015` 墓碑与重试删除、对话、SSE 三类终态、引用快照及跨用户知识库 `20002/404`/其他资源 `20007/404` 端到端失败测试于 `frontend/tests/e2e/orionamesh-mvp.spec.ts`
+- [x] T118 [P] [US3] 编写完整 DocumentTask DTO、异步失败码、失败终态、删除确认、`20015` 删除未完成墓碑/重试删除与不可见重处理入口组件失败测试于 `frontend/tests/component/user-story-3.test.tsx`
+- [x] T119 [US3] 配置前后端契约替身与浏览器端到端测试环境于 `frontend/tests/e2e/fixtures/api.ts`、`frontend/playwright.config.ts`
+- [x] T120 [US3] 编写认证、本人基本资料查看/更新、上传重放、限流、轮询、空文档失败删除、资料与知识库删除中重复 DELETE 无副作用、`delete_failed/20015` 墓碑与重试删除、对话、SSE 三类终态、引用快照及跨用户知识库 `20002/404`/其他资源 `20007/404` 端到端失败测试于 `frontend/tests/e2e/orionamesh-mvp.spec.ts`
 
 ### 前端实现
 
-- [ ] T121 [US3] 实现完整 DocumentTask DTO 的尝试、进度、处理阶段、持久化失败码、失败原因、删除确认和 `20015` 删除未完成的重试删除渲染于 `frontend/src/features/documents/TaskHistory.tsx`、`frontend/src/features/documents/DeleteDocumentDialog.tsx`
+- [x] T121 [US3] 实现完整 DocumentTask DTO 的尝试、进度、处理阶段、持久化失败码、失败原因、删除确认和 `20015` 删除未完成的重试删除渲染于 `frontend/src/features/documents/TaskHistory.tsx`、`frontend/src/features/documents/DeleteDocumentDialog.tsx`
 
 **检查点**：浏览器端完整主路径通过；前端未绕过后端授权、状态机或契约。
 

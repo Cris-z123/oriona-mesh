@@ -6,11 +6,17 @@ import {
   type Query,
 } from "@tanstack/react-query";
 
-import { ApiError, deleteDocument, getDocument, listDocuments } from "@/lib/api/client";
-import type { Document, Page } from "@/lib/api/types";
+import {
+  ApiError,
+  deleteDocument,
+  getDocument,
+  listDocumentTasks,
+  listDocuments,
+} from "@/lib/api/client";
+import type { Document, DocumentTask, Page } from "@/lib/api/types";
 import { queryKeys } from "@/lib/query-keys";
 import { isInFlight } from "@/features/documents/status";
-import type { DocumentStatusFilter } from "@/stores/ui-store";
+import type { DocumentStatusFilter } from "@/lib/api/types";
 
 /**
  * 资料查询封装（T138，ui-design §6.1/6.2）：
@@ -65,6 +71,21 @@ export function useDocumentDetail(
       if (!doc || !isInFlight(doc.status)) return false;
       return pollIntervalMs;
     },
+  });
+}
+
+/** 资料任务与 attempt 记录：只读取服务端 DTO，不在客户端推导状态或失败原因。 */
+export function useDocumentTasks(
+  knowledgeBaseId: string,
+  documentId: string,
+  page = 1,
+  pageSize = 20,
+  enabled = true
+) {
+  return useQuery<Page<DocumentTask>, ApiError>({
+    queryKey: queryKeys.documentTasks(knowledgeBaseId, documentId, page, pageSize),
+    queryFn: () => listDocumentTasks(knowledgeBaseId, documentId, page, pageSize),
+    enabled,
   });
 }
 

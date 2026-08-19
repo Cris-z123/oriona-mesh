@@ -31,6 +31,19 @@ function getServerSnapshot(): SessionState | null {
   return null;
 }
 
+/** 水合前必须维持 false，首个客户端快照则为 true，避免受保护路由抢先重定向。 */
+function subscribeHydration(): () => void {
+  return () => undefined;
+}
+
+function getClientHydrationSnapshot(): boolean {
+  return true;
+}
+
+function getServerHydrationSnapshot(): boolean {
+  return false;
+}
+
 /**
  * 认证上下文（T109）：会话状态通过 useSyncExternalStore 订阅 session 存储；
  * 恢复时拉取 /users/me，Access Token 失效由客户端自动轮换，10001 轮换失败则清除会话。
@@ -39,6 +52,12 @@ function getServerSnapshot(): SessionState | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const session = useSyncExternalStore(subscribeSession, getSession, getServerSnapshot);
   const sessionKey = session ? `${session.accessToken}:${session.refreshToken}` : null;
+  // SSR 快照必为 null；在客户端首次同步真实 localStorage 前不得让受保护路由重定向。
+  const hydrated = useSyncExternalStore(
+    subscribeHydration,
+    getClientHydrationSnapshot,
+    getServerHydrationSnapshot
+  );
 
   const [meResult, setMeResult] = useState<{
     sessionKey: string | null;
@@ -83,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isCurrentSession = sessionKey !== null && meResult.sessionKey === sessionKey;
   const user = isCurrentSession && meResult.status === "done" ? meResult.user : null;
-  const ready = session ? isCurrentSession && meResult.status === "done" : true;
+  const ready = hydrated && (session ? isCurrentSession && meResult.status === "done" : true);
 
   const signOut = useCallback(async () => {
     await apiLogout();

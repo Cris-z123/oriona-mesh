@@ -55,17 +55,34 @@ export function useMessageStream(conversationId: string) {
   const queryClient = useQueryClient();
   const controllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+  const previousConversationIdRef = useRef<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamMessage, setStreamMessage] = useState<AssistantMessage | null>(null);
   const [streamCitations, setStreamCitations] = useState<Citation[]>([]);
   const [feedback, setFeedback] = useState<StreamFeedback | null>(null);
 
   useEffect(() => {
+    const isConversationSwitch =
+      previousConversationIdRef.current !== null &&
+      previousConversationIdRef.current !== conversationId;
+    previousConversationIdRef.current = conversationId;
     mountedRef.current = true;
+    // 同一组件切换会话时，旧请求的 finally 不会接管新会话状态；在新生命周期主动复位。
+    const resetTimer = isConversationSwitch
+      ? window.setTimeout(() => {
+          if (!mountedRef.current || controllerRef.current) return;
+          setIsStreaming(false);
+          setStreamMessage(null);
+          setStreamCitations([]);
+          setFeedback(null);
+        }, 0)
+      : null;
     return () => {
+      if (resetTimer !== null) window.clearTimeout(resetTimer);
       mountedRef.current = false;
-      controllerRef.current?.abort();
-      controllerRef.current = null;
+      const controller = controllerRef.current;
+      controller?.abort();
+      if (controllerRef.current === controller) controllerRef.current = null;
     };
   }, [conversationId]);
 

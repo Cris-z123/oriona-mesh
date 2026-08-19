@@ -23,3 +23,7 @@ frontend/playwright-report/
 frontend/test-results/
 
 frontend/tsconfig.tsbuildinfo
+
+# Next.js dev server 自动生成的目录级 AI 指引，不属于项目维护内容。
+frontend/AGENTS.md
+frontend/CLAUDE.md

@@ -19,7 +19,7 @@ import {
 import { clearSession, getSession, setSession } from "@/lib/api/session";
 
 /**
- * T106 [P] [US1] API 客户端失败测试（先写后验）。
+ * T106 [P] [US1] API 客户端测试。
  *
  * 覆盖冻结契约（contracts/openapi.yaml）的客户端封装：
  * - 统一信封：code=0 返回 data；非 0 按 code 抛同步 ApiError（含 msg/trace_id）；
@@ -141,6 +141,18 @@ const DOC = {
 };
 
 describe("API 客户端：统一信封", () => {
+  it("未配置 API 地址时使用同源 /v1", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", undefined);
+    fetchMock.mockResolvedValue(fetchResponse(200, envelope(0, USER)));
+
+    await getMe();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/users/me",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("成功响应返回 data（code=0 不抛错）", async () => {
     fetchMock.mockResolvedValue(fetchResponse(200, envelope(0, USER)));
     await expect(getMe()).resolves.toEqual(USER);

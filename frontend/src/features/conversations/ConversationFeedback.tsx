@@ -1,6 +1,8 @@
 "use client";
 
-import { AlertCircle, CircleX, SearchX } from "lucide-react";
+import { CircleX, SearchX } from "lucide-react";
+
+import { ErrorState } from "@/components/ui/error-state";
 
 export type ConversationFeedbackKind = "no_evidence" | "failed" | "cancelled";
 
@@ -52,14 +54,5 @@ export function ConversationFeedback({
             : "请求过于频繁，请稍后重试。"
           : (message ?? "回答生成失败，请稍后重试。");
 
-  return (
-    <div
-      role="alert"
-      className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
-    >
-      <AlertCircle className="mr-2 inline h-4 w-4" aria-hidden />
-      {failureMessage}
-      {traceId ? <p className="mt-1 text-xs opacity-80">trace_id: {traceId}</p> : null}
-    </div>
-  );
+  return <ErrorState error={{ msg: failureMessage, traceId: traceId ?? null }} />;
 }
