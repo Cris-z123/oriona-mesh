@@ -40,9 +40,19 @@ class ConversationService:
         return self.repository.get_for_user(conversation_id, user_id)
 
     def list_conversations(
-        self, user_id: uuid.UUID, *, page: int, page_size: int
+        self,
+        user_id: uuid.UUID,
+        *,
+        page: int,
+        page_size: int,
+        knowledge_base_id: uuid.UUID | None = None,
     ) -> tuple[list[Conversation], int]:
-        return self.repository.list_for_user(user_id, page=page, page_size=page_size)
+        return self.repository.list_for_user(
+            user_id,
+            page=page,
+            page_size=page_size,
+            knowledge_base_id=knowledge_base_id,
+        )
 
     def rename(self, user_id: uuid.UUID, conversation_id: uuid.UUID, title: str) -> Conversation:
         return self.repository.rename(conversation_id, user_id, title)

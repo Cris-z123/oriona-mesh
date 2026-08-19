@@ -42,11 +42,15 @@ def create_conversation(
 def list_conversations(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    knowledge_base_id: uuid.UUID | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     items, total = ConversationService(db).list_conversations(
-        current_user.id, page=page, page_size=page_size
+        current_user.id,
+        page=page,
+        page_size=page_size,
+        knowledge_base_id=knowledge_base_id,
     )
     return success_response(
         {

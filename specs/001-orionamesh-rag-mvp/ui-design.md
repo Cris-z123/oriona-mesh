@@ -93,7 +93,7 @@ Shadcn/UI 是基础组件来源和可维护代码所有权边界。遵循其可�
 
 - **TanStack Query**：唯一的 REST 服务器状态缓存层。负责查询、分页、失效、资料非终态轮询、加载/错误状态和 mutation 后的精确失效。查询键按资源层级构造（例如 `knowledgeBases`、`documents`、`conversations`、`messages`、`citations`），不得把服务端实体副本放进 Zustand。
 - **SSE Hook**：`useMessageStream` 负责一次发送与事件消费。每个事件仅更新当前流式草稿；终态后失效对应消息/引用查询，使服务端持久化结果重新成为界面真相。断开、错误或卸载必须关闭连接。
-- **Zustand**：仅保存短生命周期、客户端 UI 状态：导航折叠、当前已打开的引用抽屉及其引用 ID、非敏感的临时筛选/视图偏好。不得保存 token、用户密码、Refresh Token、授权结论、资料/会话实体、任务状态或服务端错误码。
+- **Zustand**：仅保存短生命周期、客户端 UI 状态：导航折叠、当前已打开的引用抽屉选择器（由 `messageId + rank` 组成，不是 Citation DTO 中不存在的 ID）、非敏感的临时筛选/视图偏好。不得保存 token、用户密码、Refresh Token、授权结论、资料/会话实体、任务状态或服务端错误码。
 - **next-themes**：负责浅色/深色和系统偏好持久化；主题不进入业务状态仓库。
 - **React Hook Form + Zod**：用于本地表单输入、可访问字段错误和提交前结构校验；服务端 `code/msg` 是最终业务反馈，前端校验不得替代服务端限制。
 

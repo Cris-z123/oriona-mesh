@@ -32,14 +32,16 @@ const PAGE_SIZE = 20;
  */
 export function DocumentList({
   knowledgeBaseId,
+  initialDocumentId = null,
   pollIntervalMs = 3000,
 }: {
   knowledgeBaseId: string;
+  initialDocumentId?: string | null;
   pollIntervalMs?: number;
 }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialDocumentId);
   const statusFilter = useUiStore((state) => state.documentStatusFilter);
   const setStatusFilter = useUiStore((state) => state.setDocumentStatusFilter);
 

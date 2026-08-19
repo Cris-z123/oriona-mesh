@@ -52,14 +52,20 @@ class ConversationRepository:
         return conv
 
     def list_for_user(
-        self, user_id: uuid.UUID, *, page: int, page_size: int
+        self,
+        user_id: uuid.UUID,
+        *,
+        page: int,
+        page_size: int,
+        knowledge_base_id: uuid.UUID | None = None,
     ) -> tuple[list[Conversation], int]:
-        total = self.session.scalar(
-            select(func.count()).select_from(Conversation).where(Conversation.user_id == user_id)
-        )
+        filters = [Conversation.user_id == user_id]
+        if knowledge_base_id is not None:
+            filters.append(Conversation.knowledge_base_id == knowledge_base_id)
+        total = self.session.scalar(select(func.count()).select_from(Conversation).where(*filters))
         rows = self.session.scalars(
             select(Conversation)
-            .where(Conversation.user_id == user_id)
+            .where(*filters)
             .order_by(Conversation.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
