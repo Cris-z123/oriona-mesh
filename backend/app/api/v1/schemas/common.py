@@ -21,6 +21,7 @@ PROTECTION_UNAVAILABLE_MSG = "系统繁忙，请稍后再试"
 RESOURCE_CONFLICT_MSG = "请求与当前资源状态冲突"
 TOKEN_INVALID_MSG = "请重新登录"
 KNOWLEDGE_BASE_NOT_FOUND_MSG = "请求的知识库不存在"
+KNOWLEDGE_BASE_NAME_ALREADY_EXISTS_MSG = "知识库名称已存在，请更换名称"
 
 
 class ApiEnvelope(BaseModel):

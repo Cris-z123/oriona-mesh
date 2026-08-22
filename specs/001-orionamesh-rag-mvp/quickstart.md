@@ -85,10 +85,10 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
 
 | 验证项 | 结果 |
 |---|---|
-| 后端全量回归（unit/contract/integration/architecture，含 T126–T131 评审修复回归；`scripts/check-backend.sh`） | **747 passed / 2 skipped** |
+| 后端全量回归（unit/contract/integration/architecture，含 T126–T131 评审修复回归；`scripts/check-backend.sh`） | **754 passed / 2 skipped** |
 | 后端质量工具（uv lock --check、Ruff format/check、Pyright） | 全绿（Pyright 0 errors） |
-| 契约与部署基线（`scripts/verify-contracts.sh`：OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式、迁移离线 SQL、配置契约、契约测试子集） | **168 passed / 1 skipped** |
-| 前端全量（`scripts/check-frontend.sh`：根锁文件 frozen 安装 → ESLint → Prettier → tsc → Vitest → Playwright） | **92 vitest passed / 9 文件 + 7 e2e passed**，lint/format/typecheck 全绿 |
+| 契约与部署基线（`scripts/verify-contracts.sh`：OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式、迁移离线 SQL、配置契约、契约测试子集） | **172 passed / 1 skipped** |
+| 前端全量（`scripts/check-frontend.sh`：根锁文件 frozen 安装 → ESLint → Prettier → tsc → Vitest） | **118 vitest passed（12 文件）**，lint/format/typecheck 全绿；无 Playwright/E2E |
 | 真实启动冒烟（uvicorn + `.env.local`：/health → /ready → 注册/登录/本人资料/建库/上传 202） | **通过**：首次暴露本机开发库从未迁移（`/ready` 缺 vector/pg_trgm），`alembic upgrade head` 后 `/ready` 200，注册/登录/资料/知识库/上传 `202 queued` 全链路信封正确 |
 | 完整 Compose 冒烟（`RUN_DELIVERY_SMOKE=1`：Release 同名双镜像构建 → postgres/redis up → one-off migrate → api/worker/frontend `--no-build --pull never` → nginx 80 → 容器重建后 `/data/orionamesh` 持久卷保留） | **1 passed**（5:00） |
 | 日志白名单审查（T124：核心日志/模型审计/前端 Pino/SSE/引用快照） | **通过**，无代码变更；白名单由 `test_logging.py`/`test_security.py`/`test_audit.py`/`test_model_egress.py`/`test_model_egress_contract.py` 持续断言 |
@@ -122,7 +122,7 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
 | 23 RAG 功能示例（有证据 Citation/无证据拒答/删除后 snapshot） | `tests/unit/services/test_citations.py`、`test_answer_rejection.py`、`tests/integration/documents/test_deletion_and_citations.py` |
 | 24 未分类异常 `50000/500` 统一信封与安全提示 | `tests/contract/test_business_error_codes.py` |
 | 25 知识库删除编排（deleting 隐藏、fencing、`delete_failed/20015` 墓碑、物理删除级联） | `tests/integration/knowledge_bases/test_deletion_orchestration.py` |
-| 前端验证 1–3（登录/资料/建库/上传/轮询/失败删除/会话/SSE/引用/限流与不可见资源提示，无重处理入口） | `frontend/tests/component/user-story-1/2/3.test.tsx` 等 92 项 + `frontend/tests/e2e/orionamesh-mvp.spec.ts` 7 项 |
+| 前端验证 1–3 与核心流程体验修订（登录/资料/建库/上传/轮询/失败删除/会话/SSE/引用/限流与不可见资源提示、确认密码/20016 重名/认证恢复/深链接/引用跨会话关闭/窄屏账户入口，无重处理入口） | `frontend/tests/component/` 下的 Vitest 单元/组件测试（118 项）；项目不保留 `frontend/tests/e2e/` 或 Playwright 配置 |
 | 质量与交付验证 1–7（质量工具、Compose 健康/就绪、持久卷重建保留、CI/镜像门禁、Release 归档契约、锁文件、one-off 迁移后切换） | `scripts/check-backend.sh`、`check-frontend.sh`、`verify-contracts.sh`、`tests/integration/test_delivery_stack.py`（18 passed / 1 skipped + 冒烟 1 passed）、`.github/workflows/ci.yml`、`image.yml` |
 
 本阶段发现并修复（代码随本阶段交付）：
@@ -135,6 +135,47 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
    监听），`_assert_api_ready` 改为 60 秒重试。
 4. 真实启动冒烟暴露本机开发库未迁移（`/ready` 缺扩展）；本地开发按 README 的
    `uv run alembic upgrade head` 初始化后 `/ready` 通过。
+
+### 阶段 13 体验一致性验证记录（T161，2026-08-22）
+
+自动化结果（全部确定性验证均绿；人工浏览器冒烟标记为待执行）：
+
+1. **对话工作区组合（T153/T157）**：`core-conversation-workflow.test.tsx` 覆盖——无 URL 知识库时不回退第一个有效知识库、切换知识库确认后重置会话页码/选中/引用、知识库选择器打开时按需加载全部有效知识库（page_size=100）、会话删除仅发送一次请求；会话历史位于全局侧栏（`WorkspaceNav`/抽屉），仅在与对话路由且 URL 明确知识库时呈现（`ConditionalConversationSidebar`，以 knowledgeBase 为 key 重置页码），其他页面绝不显示，绝不移入中央主内容区。
+2. **资料工作区（T154/T158）**：`core-knowledge-document-workflow.test.tsx` 覆盖——上传接受后立即重取当前页显示非终态资料行、上传中禁用再次选择并显示明确提示、读取失败显示可重试错误不降级为空列表、资料页标题显示所属知识库名称。
+3. **消息即时体验（T155/T159）**：`core-conversation-workflow.test.tsx` 覆盖——标准 AI 单列消息流（用户右侧紧凑气泡、助手左侧无边框正文、流式靛蓝光标附着助手正文末尾）、会话详情加载骨架、发送后立即显示乐观用户消息（终态后持久化接管）、消息按原有换行渲染、历史加载失败重试、上翻阅读历史时显示“回到最新内容”入口、重命名成功短暂成功反馈。
+4. **成功反馈与表单（T156/T160）**：`core-auth-workflow.test.tsx` 覆盖——密码规则预先提示、密码在确认密码之前、无效输入阻断请求；`components/ui/toast.tsx` 统一短暂成功反馈应用于知识库创建/保存、会话重命名/删除。
+
+门禁基线：完整前端 Vitest **138 passed / 12 文件**；lint（0 告警）、Prettier、tsc 全绿（`scripts/check-frontend.sh`）；无 Playwright/E2E。人工浏览器冒烟（待执行，不阻塞 T161 勾选）：复核桌面浅/深色与窄屏下的注册、创建知识库、上传、首次提问、切换知识库、会话删除和错误恢复。
+
+### 核心工作流体验修订验证（T152，已通过 2026-08-21）
+
+自动化结果（全部确定性验证均绿；人工浏览器冒烟用于观察连续操作与视觉反馈，
+不构成或替代浏览器端 E2E 自动化门禁，标记为待人工执行）：
+
+1. 注册确认密码与密码规则：`tests/component/core-auth-workflow.test.tsx`（T140）
+   + `tests/contract/test_business_error_codes.py::TestCoreWorkflowValidation`
+   + 服务端 `app/core/password_policy.py`（8–256 字符且含 ASCII 字母和数字）。
+2. 知识库创建跳转与 `20016/409`：`tests/integration/knowledge_bases/test_name_uniqueness.py`
+   （删除态不占名、并发唯一裁决）+ `test_business_error_codes.py`（创建/改名冲突）
+   + `core-knowledge-document-workflow.test.tsx`（创建后进入资料工作区、描述清空、删除清理）。
+3. 资料工作区与上传：`core-knowledge-document-workflow.test.tsx`（接受反馈、跨筛选批次
+   终态更新、详情抽屉、删除后上下文清理）；跨筛选批次跟踪实现于
+   `frontend/src/app/knowledge-bases/[knowledgeBaseId]/page.tsx`。
+4. 会话工作区：`core-conversation-workflow.test.tsx`（URL 恢复、范围内分页、mutation/404
+   错误、跨会话关闭引用、消息加载与输入快捷键）；正文顶栏知识库与固定输入区见
+   `ConversationsWorkspace.tsx`/`MessageThread.tsx`。
+5. 窄屏入口与 E2E 清理：`core-auth-workflow.test.tsx`（抽屉导航与账户等价入口）；
+   仓库无 Playwright、`frontend/tests/e2e/` 或 `test:e2e` 相关依赖/脚本（T141）。
+
+门禁基线：后端 `scripts/check-backend.sh` 全绿（754 passed / 2 skipped + 契约 172 passed / 1
+skipped）；前端 `scripts/check-frontend.sh` 全绿（118 passed，lint/format/typecheck 无告警）；
+迁移 0003 离线 SQL 与在线回填审计由 `verify-contracts.sh` 覆盖。评审修复（T126–T131 之后）
+随本阶段交付：认证恢复屏清除/登出服务端撤销、会话分页恢复与防重入、中文输入法 Enter
+兼容、资料详情可读阶段/大小/时间与 20015 抽屉关闭、上传批次跨筛选跟踪、壳层抽屉死控件
+移除并同步 ui-design §3.1（会话左栏为页面内布局）。
+
+人工浏览器冒烟（待执行，不阻塞 T152 勾选）：在本地启动完整栈后，按上述 1–5 顺序走一遍
+四条核心路径并观察视觉反馈。
 
 ## 前置条件
 
@@ -327,7 +368,7 @@ Reranker 和 Generation 最大尝试预算之和再加 60 秒；默认值 360 �
 
 1. 后端依次执行 Ruff format/check、Pyright、pytest、迁移与扩展就绪检查、OpenAPI 校验。
    OpenAPI 校验必须确认所有操作声明限流策略，`10005/429` 响应具有必需的 `Retry-After`。
-2. 前端依次执行 pnpm lint、Prettier check、TypeScript 类型检查、Vitest 和 Playwright。
+2. T141 完成后，前端依次执行 pnpm lint、Prettier check、TypeScript 类型检查和 Vitest；检查仓库不含 Playwright、浏览器端 E2E 脚本、配置、替身或依赖。
 3. 使用 Docker Compose 启动 PostgreSQL、Redis、后端 worker、后端、前端和 Nginx；验证健康与就绪检查。
    重建 API/worker 容器后必须验证 `/data/orionamesh` 命名卷中的原始资料和解析对象仍存在且可读取。
 4. GitHub Actions 必须以锁文件安装依赖、执行上述质量门禁，并在 `image.yml` 中构建

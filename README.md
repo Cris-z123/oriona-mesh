@@ -16,7 +16,7 @@
 
 - **后端**：Python 3.12 · FastAPI · SQLAlchemy 2 · Alembic · Celery · Redis · PostgreSQL 16（pgvector / pg_trgm）
 - **模型接入**：LangChain（OpenAI-compatible 协议）+ 统一出口网关（脱敏、路由、审计）
-- **前端**：Next.js · React · TypeScript · Tailwind CSS · shadcn/ui · TanStack Query · Zustand · next-themes · Vitest · Playwright
+- **前端**：Next.js · React · TypeScript · Tailwind CSS · shadcn/ui · TanStack Query · Zustand · next-themes · Vitest
 - **工具链**：uv · pnpm（根工作区唯一锁文件）· Ruff · Pyright · pytest · ESLint · Prettier · Docker Compose · GitHub Actions
 
 ## 快速开始
@@ -135,7 +135,7 @@ frontend/              # Next.js 前端（认证、知识库、资料、会话�
   src/features/        # 业务渲染（认证、资料、文档任务历史、消息流、引用抽屉等）
   src/lib/             # API 客户端、TanStack Query 封装、Pino 服务端日志（脱敏）
   src/stores/          # Zustand UI 状态（仅导航折叠/抽屉/视图偏好，不存服务端实体）
-  tests/               # unit / component / e2e
+  tests/               # unit / component
 specs/                 # 功能规格与权威契约文档
 scripts/               # 质量门禁脚本（check-backend.sh / verify-contracts.sh / check-frontend.sh）
 deploy/                # Docker 镜像（docker/）与 Compose 编排（compose/）
@@ -157,7 +157,7 @@ pnpm lint                        # ESLint
 pnpm format:check                # Prettier
 pnpm typecheck                   # TypeScript 严格检查
 pnpm test                        # Vitest
-bash scripts/check-frontend.sh   # 一键前端门禁（frozen-lockfile → lint → format → tsc → vitest → e2e）
+bash scripts/check-frontend.sh   # 一键前端门禁（frozen-lockfile → lint → format → tsc → vitest）
 
 bash scripts/verify-contracts.sh # 契约与部署基线（OpenAPI/迁移离线 SQL/配置契约，可独立运行）
 ```

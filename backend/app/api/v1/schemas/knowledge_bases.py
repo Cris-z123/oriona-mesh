@@ -1,6 +1,6 @@
 """知识库请求/响应模式（openapi.yaml knowledge-bases 段）。"""
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.constants import DELETE_CLEANUP_ERROR_CODE
 from app.models.enums import KnowledgeBaseStatus
@@ -10,10 +10,20 @@ class KnowledgeBaseInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=1000)
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim_name(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
 
 class UpdateKnowledgeBaseInput(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim_name(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def _at_least_one_field(self) -> "UpdateKnowledgeBaseInput":

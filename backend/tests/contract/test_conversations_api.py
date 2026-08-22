@@ -8,6 +8,7 @@ before/limit 游标分页连续且无重复、统一 Citation DTO（live 强制�
 """
 
 import uuid
+from itertools import count
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,8 +55,16 @@ def _headers(tokens: dict) -> dict:
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-def _create_kb(client: TestClient, headers: dict, name: str = "kb") -> uuid.UUID:
-    resp = client.post("/v1/knowledge-bases", json={"name": name}, headers=headers)
+_kb_name_counter = count(1)
+
+
+def _create_kb(client: TestClient, headers: dict, name: str | None = None) -> uuid.UUID:
+    # FR-003（阶段 12）：同一用户 active 名称规范化后唯一；默认名加序号避免同用户冲突 20016。
+    resp = client.post(
+        "/v1/knowledge-bases",
+        json={"name": name or f"kb-{next(_kb_name_counter)}"},
+        headers=headers,
+    )
     assert resp.status_code == 201
     return uuid.UUID(resp.json()["data"]["id"])
 

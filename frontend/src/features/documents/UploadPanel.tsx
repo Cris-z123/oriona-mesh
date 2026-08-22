@@ -5,7 +5,8 @@ import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from 
 import { ErrorState } from "@/components/ui/error-state";
 import { Label } from "@/components/ui/label";
 import { ApiError, asApiError, generateIdempotencyKey, uploadDocuments } from "@/lib/api/client";
-import { UPLOAD_LIMITS } from "@/lib/api/types";
+import { UPLOAD_LIMITS, type Document } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 
 const SUPPORTED_EXTENSIONS = ["pdf", "docx", "md", "txt"];
 
@@ -36,20 +37,24 @@ export function UploadPanel({
   onUploaded,
 }: {
   knowledgeBaseId: string;
-  onUploaded?: () => void;
+  onUploaded?: (documents: Document[]) => void;
 }) {
   const [hint, setHint] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [acceptedCount, setAcceptedCount] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(
     async (files: File[]) => {
-      if (files.length === 0) return;
+      // 上传中忽略新选择/拖放（T154）：本批完成前不并发启动下一批。
+      if (files.length === 0 || uploading) return;
       setHint(null);
       setError(null);
+      // 新一轮上传或失败后清空上一次的“已接收”反馈，避免误导为仍在处理。
+      setAcceptedCount(null);
       const invalid = validateFiles(files);
       if (invalid) {
         setHint(invalid);
@@ -59,22 +64,24 @@ export function UploadPanel({
       setProgress(0);
       try {
         // 每次上传请求使用新生成的请求级幂等键（FR-031）
-        await uploadDocuments(knowledgeBaseId, files, {
+        const result = await uploadDocuments(knowledgeBaseId, files, {
           idempotencyKey: generateIdempotencyKey(),
           onProgress: (loaded, total) => {
             if (total > 0) setProgress(Math.round((loaded / total) * 100));
           },
         });
         setProgress(null);
-        onUploaded?.();
+        setAcceptedCount(result.documents.length);
+        onUploaded?.(result.documents);
       } catch (err) {
+        setAcceptedCount(null);
         setError(asApiError(err));
       } finally {
         setUploading(false);
         if (inputRef.current) inputRef.current.value = "";
       }
     },
-    [knowledgeBaseId, onUploaded]
+    [knowledgeBaseId, onUploaded, uploading]
   );
 
   const onChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -100,8 +107,16 @@ export function UploadPanel({
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
       >
-        <p className="text-muted-foreground">拖放文件到此处，或</p>
-        <Label htmlFor="upload-files" className="mt-1 inline-block cursor-pointer text-primary">
+        <p className="text-muted-foreground">
+          {uploading ? "正在上传，请等待本批完成…" : "拖放文件到此处，或"}
+        </p>
+        <Label
+          htmlFor="upload-files"
+          className={cn(
+            "mt-1 inline-block text-primary",
+            uploading ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+          )}
+        >
           选择文件
         </Label>
         <input
@@ -111,6 +126,7 @@ export function UploadPanel({
           multiple
           accept=".pdf,.docx,.md,.txt"
           className="sr-only"
+          disabled={uploading}
           onChange={onChange}
         />
       </div>
@@ -122,7 +138,7 @@ export function UploadPanel({
       ) : null}
       {uploading && progress !== null ? (
         <p className="text-sm text-muted-foreground" aria-live="polite">
-          {progress}%
+          正在上传… {progress}%
         </p>
       ) : null}
       {hint ? (
@@ -131,6 +147,11 @@ export function UploadPanel({
         </p>
       ) : null}
       {error ? <ErrorState error={error} /> : null}
+      {acceptedCount !== null ? (
+        <p aria-live="polite" className="text-sm text-primary">
+          已接收 {acceptedCount} 份资料，正在处理
+        </p>
+      ) : null}
       <p className="text-xs text-muted-foreground">
         单文件最大 50MB，单次最多 20 个；仅支持 PDF、DOCX、MD 和 TXT。
       </p>

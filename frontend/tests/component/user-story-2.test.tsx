@@ -1,26 +1,46 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CitationCard } from "@/features/citations/CitationCard";
 import { CitationDrawer } from "@/features/citations/CitationDrawer";
 import { ConversationFeedback } from "@/features/conversations/ConversationFeedback";
-import { ConversationList } from "@/features/conversations/ConversationList";
+import { ConversationSidebar } from "@/features/conversations/ConversationSidebar";
+import { ConversationsWorkspace } from "@/features/conversations/ConversationsWorkspace";
 import { MessageThread } from "@/features/conversations/MessageThread";
 import { useUiStore } from "@/stores/ui-store";
 import { renderWithProviders } from "../helpers";
 
 const api = vi.hoisted(() => ({
+  asApiError: vi.fn(),
   listKnowledgeBases: vi.fn(),
   listConversations: vi.fn(),
   createConversation: vi.fn(),
   renameConversation: vi.fn(),
   deleteConversation: vi.fn(),
+  getConversation: vi.fn(),
+  getKnowledgeBase: vi.fn(),
   listMessages: vi.fn(),
   listCitations: vi.fn(),
   streamEvents: vi.fn(),
 }));
 
 vi.mock("@/lib/api/client", () => api);
+
+const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
+const search = vi.hoisted(() => ({ value: "" }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: navigation.replace, push: navigation.push }),
+  useSearchParams: () => new URLSearchParams(search.value),
+}));
+
+vi.mock("@/features/auth/RequireAuth", () => ({
+  RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("@/components/app-shell/AppShell", () => ({
+  AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
 
 const knowledgeBase = {
   id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -88,7 +108,13 @@ const snapshotCitation = {
 };
 
 beforeEach(() => {
+  search.value = "";
+  navigation.replace.mockReset();
+  navigation.push.mockReset();
   for (const fn of Object.values(api)) fn.mockReset();
+  api.asApiError.mockImplementation((err: unknown) => err);
+  api.listMessages.mockResolvedValue({ items: [], has_more: false, next_before: null });
+  api.listCitations.mockResolvedValue({ items: [], page: 1, page_size: 20, total: 0 });
   useUiStore.setState({
     navCollapsed: false,
     citationDrawerSelector: null,
@@ -97,7 +123,7 @@ beforeEach(() => {
 });
 
 describe("US2 会话必须绑定知识库", () => {
-  it("仅允许选择当前可用知识库后创建对话，并以未命名标题展示空标题", async () => {
+  it("空态输入即新建会话：发送首条内容时自动创建并绑定知识库", async () => {
     api.listKnowledgeBases.mockResolvedValue({
       items: [knowledgeBase],
       page: 1,
@@ -111,20 +137,34 @@ describe("US2 会话必须绑定知识库", () => {
       total: 1,
     });
     api.createConversation.mockResolvedValue(conversation);
-
-    renderWithProviders(<ConversationList />);
-    const create = screen.getByRole("button", { name: "新建对话" });
-    expect(create).toBeDisabled();
-    await screen.findByRole("option", { name: "产品研究" });
-    fireEvent.change(screen.getByRole("combobox", { name: "选择知识库" }), {
-      target: { value: knowledgeBase.id },
+    api.getConversation.mockResolvedValue(conversation);
+    api.getKnowledgeBase.mockResolvedValue(knowledgeBase);
+    navigation.replace.mockImplementation((url: string) => {
+      search.value = url.split("?")[1] ?? "";
     });
-    await waitFor(() => expect(create).toBeEnabled());
-    expect(await screen.findByText("未命名对话")).toBeInTheDocument();
-    fireEvent.click(create);
+
+    search.value = `knowledgeBase=${knowledgeBase.id}`;
+    const { rerender } = renderWithProviders(<ConversationsWorkspace />);
+    fireEvent.change(screen.getByRole("textbox", { name: "输入问题" }), {
+      target: { value: "北美市场有哪些阻力？" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() =>
       expect(api.createConversation).toHaveBeenCalledWith({ knowledge_base_id: knowledgeBase.id })
+    );
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith(
+        `/conversations?knowledgeBase=${knowledgeBase.id}&conversation=${conversation.id}`
+      )
+    );
+    // 新会话挂载后自动发送首条内容。
+    rerender(<ConversationsWorkspace />);
+    await waitFor(() =>
+      expect(api.streamEvents).toHaveBeenCalledWith(
+        `/conversations/${conversation.id}/messages`,
+        expect.objectContaining({ body: { content: "北美市场有哪些阻力？" } })
+      )
     );
   });
 
@@ -144,12 +184,8 @@ describe("US2 会话必须绑定知识库", () => {
         total: 21,
       });
 
-    renderWithProviders(<ConversationList />);
-    await screen.findByRole("option", { name: "产品研究" });
-    fireEvent.change(screen.getByRole("combobox", { name: "选择知识库" }), {
-      target: { value: knowledgeBase.id },
-    });
-    await waitFor(() => expect(screen.getByRole("button", { name: "新建对话" })).toBeEnabled());
+    search.value = `knowledgeBase=${knowledgeBase.id}`;
+    renderWithProviders(<ConversationSidebar />);
     await screen.findByText("未命名对话");
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     await waitFor(() => expect(screen.getAllByText("下一页")).toHaveLength(2));
@@ -173,26 +209,29 @@ describe("US2 会话必须绑定知识库", () => {
     api.renameConversation.mockResolvedValue({ ...namedConversation, title: "新标题" });
     api.deleteConversation.mockResolvedValue(undefined);
 
-    renderWithProviders(<ConversationList />);
-    await screen.findByRole("option", { name: "产品研究" });
-    fireEvent.change(screen.getByRole("combobox", { name: "选择知识库" }), {
-      target: { value: knowledgeBase.id },
-    });
+    search.value = `knowledgeBase=${knowledgeBase.id}`;
+    renderWithProviders(<ConversationSidebar />);
     await screen.findByText("旧标题");
-    fireEvent.click(screen.getByRole("button", { name: "重命名 旧标题" }));
+
+    // 操作收进扩展菜单：重命名。
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "会话操作 旧标题" }));
+    await user.click(screen.getByRole("menuitem", { name: "重命名" }));
     fireEvent.change(screen.getByLabelText("新标题"), { target: { value: "新标题" } });
     fireEvent.click(screen.getByRole("button", { name: "保存标题" }));
     await waitFor(() =>
       expect(api.renameConversation).toHaveBeenCalledWith(conversation.id, { title: "新标题" })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "删除对话 旧标题" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    // 操作收进扩展菜单：删除。
+    await user.click(screen.getByRole("button", { name: "会话操作 旧标题" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(api.deleteConversation).toHaveBeenCalledWith(conversation.id));
   });
 
-  it("删除当前查看的会话后通知宿主清空选择", async () => {
-    const onSelectConversation = vi.fn();
+  it("删除当前查看的会话后清空当前会话上下文", async () => {
+    search.value = `knowledgeBase=${knowledgeBase.id}&conversation=${conversation.id}`;
     api.listKnowledgeBases.mockResolvedValue({
       items: [knowledgeBase],
       page: 1,
@@ -207,20 +246,18 @@ describe("US2 会话必须绑定知识库", () => {
     });
     api.deleteConversation.mockResolvedValue(undefined);
 
-    renderWithProviders(
-      <ConversationList
-        onSelectConversation={onSelectConversation}
-        selectedConversationId={conversation.id}
-      />
-    );
-    await screen.findByRole("option", { name: "产品研究" });
-    fireEvent.change(screen.getByRole("combobox", { name: "选择知识库" }), {
-      target: { value: knowledgeBase.id },
-    });
-    fireEvent.click(await screen.findByRole("button", { name: "删除对话 未命名对话" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    renderWithProviders(<ConversationSidebar />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "会话操作 未命名对话" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认删除" }));
 
-    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith(null));
+    await waitFor(() => expect(api.deleteConversation).toHaveBeenCalledWith(conversation.id));
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith(
+        `/conversations?knowledgeBase=${knowledgeBase.id}`
+      )
+    );
   });
 
   it("会话列表明确呈现加载与可恢复错误状态", async () => {
@@ -235,11 +272,8 @@ describe("US2 会话必须绑定知识库", () => {
       traceId: "trace-conversations",
     });
 
-    renderWithProviders(<ConversationList />);
-    await screen.findByRole("option", { name: "产品研究" });
-    fireEvent.change(screen.getByRole("combobox", { name: "选择知识库" }), {
-      target: { value: knowledgeBase.id },
-    });
+    search.value = `knowledgeBase=${knowledgeBase.id}`;
+    renderWithProviders(<ConversationSidebar />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("无法加载对话");
     expect(screen.getByRole("alert")).toHaveTextContent("trace_id: trace-conversations");
@@ -247,8 +281,7 @@ describe("US2 会话必须绑定知识库", () => {
     await waitFor(() => expect(api.listConversations).toHaveBeenCalledTimes(2));
   });
 
-  it("选择会话时把会话 ID 交给消息线程宿主", async () => {
-    const onSelectConversation = vi.fn();
+  it("点击会话时以 URL 进入该会话", async () => {
     api.listKnowledgeBases.mockResolvedValue({
       items: [knowledgeBase],
       page: 1,
@@ -262,13 +295,12 @@ describe("US2 会话必须绑定知识库", () => {
       total: 1,
     });
 
-    renderWithProviders(<ConversationList onSelectConversation={onSelectConversation} />);
-    await screen.findByRole("option", { name: "产品研究" });
-    fireEvent.change(screen.getByRole("combobox", { name: "选择知识库" }), {
-      target: { value: knowledgeBase.id },
-    });
+    search.value = `knowledgeBase=${knowledgeBase.id}`;
+    renderWithProviders(<ConversationSidebar />);
     fireEvent.click(await screen.findByRole("button", { name: "打开对话 未命名对话" }));
-    expect(onSelectConversation).toHaveBeenCalledWith(conversation);
+    expect(navigation.push).toHaveBeenCalledWith(
+      `/conversations?knowledgeBase=${knowledgeBase.id}&conversation=${conversation.id}`
+    );
   });
 });
 

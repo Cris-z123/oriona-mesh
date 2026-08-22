@@ -1,11 +1,13 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { asApiError, updateMe } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/features/auth/AuthProvider";
@@ -24,22 +26,24 @@ function ProfileFormInner() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-    setError,
     reset,
   } = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: { displayName: user?.display_name ?? "" },
   });
+  const [apiError, setApiError] = useState<ReturnType<typeof asApiError> | null>(null);
 
   if (!user) return null;
 
   const onSubmit = async (values: ProfileValues) => {
     try {
+      setApiError(null);
       const updated = await updateMe({ display_name: values.displayName });
       reset({ displayName: updated.display_name ?? "" });
       updateCurrentUser(updated);
     } catch (err) {
-      setError("root", { message: asApiError(err).msg });
+      // 统一错误呈现：服务端安全 msg + 可复制 trace_id（FR-021）。
+      setApiError(asApiError(err));
     }
   };
 
@@ -60,11 +64,7 @@ function ProfileFormInner() {
         ) : null}
       </div>
       <p className="text-sm text-muted-foreground">邮箱：{user.email}</p>
-      {errors.root ? (
-        <p role="alert" className="text-sm text-destructive">
-          {errors.root.message}
-        </p>
-      ) : null}
+      {apiError ? <ErrorState error={apiError} /> : null}
       <Button type="submit" disabled={isSubmitting}>
         保存
       </Button>

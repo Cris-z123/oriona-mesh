@@ -4,13 +4,22 @@
 保证注册、登录与限流复用同一规范化函数。
 """
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.core.password_policy import is_valid_registration_password
 
 
 class RegisterInput(BaseModel):
     email: str = Field(min_length=1, max_length=320)
     password: str = Field(min_length=8, max_length=256)
     display_name: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, value: str) -> str:
+        if not is_valid_registration_password(value):
+            raise ValueError("password must contain letters and digits")
+        return value
 
 
 class LoginInput(BaseModel):

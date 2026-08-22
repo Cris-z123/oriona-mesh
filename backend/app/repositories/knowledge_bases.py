@@ -11,9 +11,10 @@
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.middleware.errors import ApiError
+from app.api.middleware.errors import ApiError, KnowledgeBaseNameAlreadyExistsError
 from app.api.v1.schemas.common import KNOWLEDGE_BASE_NOT_FOUND_MSG
 from app.models.knowledge_base import KnowledgeBase
 
@@ -23,6 +24,25 @@ class KnowledgeBaseRepository:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def create(self, knowledge_base: KnowledgeBase) -> KnowledgeBase:
+        """持久化新知识库；部分唯一索引为同名并发写入的唯一裁决者。"""
+        self.session.add(knowledge_base)
+        self._commit_name_change()
+        return knowledge_base
+
+    def commit_name_change(self) -> None:
+        """提交创建或改名，数据库唯一冲突统一转换为 20016/409。"""
+        self._commit_name_change()
+
+    def _commit_name_change(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            if _is_active_name_unique_violation(exc):
+                raise KnowledgeBaseNameAlreadyExistsError() from exc
+            raise
 
     def lock_for_delete(self, kb_id: uuid.UUID, user_id: uuid.UUID) -> KnowledgeBase:
         """仅 DELETE 使用的锁定变更查询；命中 active/deleting/delete_failed。
@@ -37,3 +57,11 @@ class KnowledgeBaseRepository:
         if kb is None:
             raise ApiError(20002, KNOWLEDGE_BASE_NOT_FOUND_MSG, 404)
         return kb
+
+
+def _is_active_name_unique_violation(exc: IntegrityError) -> bool:
+    """只将本部分唯一索引的冲突映射为知识库名称冲突。"""
+    diagnostic = getattr(exc.orig, "diag", None)
+    return getattr(diagnostic, "constraint_name", None) == (
+        "uq_knowledge_bases_active_user_normalized_name"
+    )

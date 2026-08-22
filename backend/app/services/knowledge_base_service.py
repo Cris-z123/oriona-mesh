@@ -27,7 +27,7 @@ from app.api.v1.schemas.common import (
 from app.models.document import Document
 from app.models.document_task import DocumentTask
 from app.models.enums import DocumentStatus, KnowledgeBaseStatus
-from app.models.knowledge_base import KnowledgeBase
+from app.models.knowledge_base import KnowledgeBase, normalize_knowledge_base_name
 from app.repositories.base import require_knowledge_base
 from app.repositories.knowledge_bases import KnowledgeBaseRepository
 from app.services.document_deletion_service import DocumentDeletionService
@@ -52,10 +52,13 @@ class KnowledgeBaseService:
     def create(
         self, user_id: uuid.UUID, name: str, description: str | None = None
     ) -> KnowledgeBase:
-        kb = KnowledgeBase(user_id=user_id, name=name, description=description)
-        self.session.add(kb)
-        self.session.commit()
-        return kb
+        kb = KnowledgeBase(
+            user_id=user_id,
+            name=name,
+            normalized_name=normalize_knowledge_base_name(name),
+            description=description,
+        )
+        return self.knowledge_bases.create(kb)
 
     def list_for_user(
         self, user_id: uuid.UUID, *, page: int, page_size: int
@@ -93,9 +96,10 @@ class KnowledgeBaseService:
             raise ApiError(_CONFLICT_CODE, RESOURCE_CONFLICT_MSG, _CONFLICT_STATUS)
         if name is not None:
             kb.name = name
+            kb.normalized_name = normalize_knowledge_base_name(name)
         if description is not None:
             kb.description = description
-        self.session.commit()
+        self.knowledge_bases.commit_name_change()
         return kb
 
     def delete(self, user_id: uuid.UUID, kb_id: uuid.UUID) -> None:

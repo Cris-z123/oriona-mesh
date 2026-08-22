@@ -230,7 +230,9 @@ describe("US1 认证", () => {
     api.register.mockResolvedValue(USER);
     render(<RegisterForm />);
     fireEvent.change(screen.getByLabelText(/邮箱/), { target: { value: "a@example.com" } });
-    fireEvent.change(screen.getByLabelText(/密码/), { target: { value: "pw-123456" } });
+    // 精确 label：确认密码与密码两个字段（阶段 12 新增确认密码）。
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "pw-123456" } });
+    fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "pw-123456" } });
     fireEvent.change(screen.getByLabelText(/昵称/), { target: { value: "Alice" } });
     fireEvent.click(screen.getByRole("button", { name: /注册/ }));
     await waitFor(() =>
@@ -381,7 +383,7 @@ describe("US1 知识库列表", () => {
     await waitFor(() => expect(api.deleteKnowledgeBase).toHaveBeenCalledWith("kb-2"));
   });
 
-  it("创建知识库后刷新列表", async () => {
+  it("创建知识库后导航进入其资料工作区并刷新列表", async () => {
     api.listKnowledgeBases.mockResolvedValue(page([KB_ACTIVE]));
     api.createKnowledgeBase.mockResolvedValue(KB_ACTIVE);
     renderWithProviders(<KnowledgeBaseList />);
@@ -389,6 +391,7 @@ describe("US1 知识库列表", () => {
     fireEvent.change(screen.getByLabelText(/知识库名称/), { target: { value: "新库" } });
     fireEvent.click(screen.getByRole("button", { name: /创建/ }));
     await waitFor(() => expect(api.createKnowledgeBase).toHaveBeenCalledWith({ name: "新库" }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/knowledge-bases/${KB_ACTIVE.id}`));
     await waitFor(() => expect(api.listKnowledgeBases).toHaveBeenCalledTimes(2));
   });
 });
@@ -448,7 +451,7 @@ describe("US1 上传面板", () => {
         expect.objectContaining({ idempotencyKey: "auto-key-0001" })
       )
     );
-    expect(await screen.findByText("50%")).toBeInTheDocument();
+    expect(await screen.findByText(/正在上传… 50%/)).toBeInTheDocument();
     await waitFor(() => expect(onUploaded).toHaveBeenCalled());
   });
 

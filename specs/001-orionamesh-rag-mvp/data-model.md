@@ -49,7 +49,7 @@
 |---|---|
 | id | UUID，主键 |
 | email | 必填、规范化后唯一；先去除首尾 Unicode 空白、完成邮箱格式校验，再对完整邮箱执行 Unicode `casefold`。注册冲突、登录查找和账号限流 HMAC 必须复用同一函数 |
-| password_hash | 必填；不得保存明文密码 |
+| password_hash | 必填；不得保存明文密码。注册前的明文密码必须至少 8 字符并同时含字母和数字；确认密码仅在客户端校验，不入 API 或数据库 |
 | display_name | 可选，最多 100 字符 |
 | last_login_at | 可空；注册时为空，仅在首次及后续登录成功时更新 |
 
@@ -70,11 +70,14 @@
 | 字段 | 规则 |
 |---|---|
 | user_id | 必填；所有访问以其为边界 |
-| name | 必填，最多 120 字符 |
+| name / normalized_name | `name` 是用户显示名称，最多 120 字符；`normalized_name` 为去除首尾 Unicode 空白后执行 Unicode `casefold` 的内部值，不对外返回。`status=active` 时二者均非空，数据库以部分唯一索引保证 `(user_id, normalized_name)` 唯一；`deleting` 与 `delete_failed` 不占用该唯一性，以便用户重新使用名称 |
 | description | 可选 |
 | status | `active`、`deleting` 或 `delete_failed`；`deleting` 从列表、详情、对话创建和检索中隐藏；`delete_failed` 在所属用户的知识库列表/详情中仅返回最小“删除未完成”墓碑和 `retry_delete`，不得暴露普通知识库内容或子资源。仅所属用户的 DELETE 命令可通过独立变更查询命中这三种状态，该查询不得复用于普通内容读取。 |
 | delete_error_code | 可空；仅 `delete_failed` 时固定为 `20015`，用于表达子资料删除清理未完成 |
 | allowed_actions | 非持久化响应字段；`active` 为 `delete`，`delete_failed` 仅为 `retry_delete` |
+
+- 创建或改名必须在同一事务中写入 `normalized_name` 并依赖上述部分唯一索引处理并发；唯一冲突映射为
+  `20016/409`，不得先以应用层预查询替代数据库约束。
 
 ### 资料（documents）
 

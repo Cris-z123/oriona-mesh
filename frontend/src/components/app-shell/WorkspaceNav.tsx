@@ -1,15 +1,15 @@
 "use client";
 
-import { Library, MessageSquareText, PanelLeftClose, PanelLeftOpen, User } from "lucide-react";
+import { Library, MessageSquareText, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ComponentType } from "react";
+import { Suspense, type ComponentType } from "react";
 
-import { SignOutButton } from "@/features/auth/SignOutButton";
+import { ConditionalConversationSidebar } from "@/features/conversations/ConditionalConversationSidebar";
 import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 
-import { ThemeToggle } from "./ThemeToggle";
+import { AccountMenu } from "./AccountMenu";
 
 interface NavItem {
   href: string;
@@ -21,7 +21,6 @@ interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/knowledge-bases", label: "知识库", icon: Library },
   { href: "/conversations", label: "对话", icon: MessageSquareText },
-  { href: "/profile", label: "个人资料", icon: User },
 ];
 
 /** 导航链接（桌面侧栏与移动端抽屉共用）；折叠不丢失可访问名称。 */
@@ -63,12 +62,17 @@ export function NavLinks({
 }
 
 /**
- * 左侧固定工作区导航（T137，ui-design §3.1）：品牌、导航链接、主题切换、
- * 退出登录与折叠开关。折叠状态保存在 UI store，仅维护布局与本地 UI 状态。
+ * 左侧固定全局侧栏（T137/T148/T157，ui-design §3.1）：品牌、折叠开关、
+ * 知识库管理与对话导航、底部账户菜单。会话历史仅在与对话路由且 URL 知识库
+ * 明确时出现（ConditionalConversationSidebar），其他页面绝不显示。
+ * 折叠状态保存在 UI store，仅维护布局与本地 UI 状态。
  */
 export function WorkspaceNav() {
   const collapsed = useUiStore((state) => state.navCollapsed);
   const toggleCollapsed = useUiStore((state) => state.toggleNavCollapsed);
+  const pathname = usePathname();
+  const isConversationRoute =
+    pathname === "/conversations" || pathname.startsWith("/conversations/");
 
   return (
     <aside
@@ -78,42 +82,52 @@ export function WorkspaceNav() {
         collapsed ? "w-16" : "w-60"
       )}
     >
-      <div className="flex h-14 shrink-0 items-center border-b px-3">
-        <Link
-          href="/"
-          aria-label="OrionaMesh 首页"
-          className="flex min-w-0 items-center gap-2 rounded-md px-1 font-display text-lg font-semibold text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      <div
+        className={cn(
+          "flex h-14 shrink-0 items-center border-b px-3",
+          collapsed ? "justify-center" : "justify-between"
+        )}
+      >
+        {!collapsed ? (
+          <Link
+            href="/"
+            aria-label="OrionaMesh 首页"
+            className="flex min-w-0 items-center gap-2 rounded-md px-1 font-display text-lg font-semibold text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="truncate">OrionaMesh</span>
+          </Link>
+        ) : null}
+        <button
+          type="button"
+          aria-label={collapsed ? "展开导航" : "折叠导航"}
+          aria-expanded={!collapsed}
+          onClick={toggleCollapsed}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {collapsed ? (
-            <span className="px-1" aria-hidden>
-              ◈
-            </span>
+            <PanelLeftOpen className="h-4 w-4" aria-hidden />
           ) : (
-            <span className="truncate">OrionaMesh</span>
+            <PanelLeftClose className="h-4 w-4" aria-hidden />
           )}
-        </Link>
+        </button>
       </div>
 
-      <NavLinks collapsed={collapsed} />
+      {collapsed ? (
+        <NavLinks collapsed />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <NavLinks collapsed={false} />
+          {isConversationRoute ? (
+            <Suspense fallback={null}>
+              <ConditionalConversationSidebar />
+            </Suspense>
+          ) : null}
+        </div>
+      )}
 
       <div className={cn("space-y-1 border-t p-2", collapsed && "flex flex-col items-center")}>
-        <ThemeToggle />
-        <SignOutButton iconOnly={collapsed} />
+        <AccountMenu />
       </div>
-
-      <button
-        type="button"
-        aria-label={collapsed ? "展开导航" : "折叠导航"}
-        aria-expanded={!collapsed}
-        onClick={toggleCollapsed}
-        className="m-2 inline-flex h-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {collapsed ? (
-          <PanelLeftOpen className="h-4 w-4" aria-hidden />
-        ) : (
-          <PanelLeftClose className="h-4 w-4" aria-hidden />
-        )}
-      </button>
     </aside>
   );
 }

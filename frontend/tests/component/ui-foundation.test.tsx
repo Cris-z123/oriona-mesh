@@ -33,6 +33,7 @@ vi.mock("next/navigation", () => ({
     refresh: vi.fn(),
     prefetch: vi.fn(),
   }),
+  useSearchParams: () => new URLSearchParams(""),
 }));
 
 beforeEach(() => {
@@ -103,34 +104,32 @@ describe("主题令牌与动效降级", () => {
 // 桌面应用壳：三层结构 / 键盘导航 / 折叠不丢失可访问名称
 // ---------------------------------------------------------------------------
 
-/** AppShell 内含 SignOutButton，需要 AuthProvider（无会话时可直接渲染）。 */
+/** AppShell 内含账户菜单，需要 AuthProvider（无会话时可直接渲染）。 */
 function renderShell(shell: ReactNode) {
   return render(<AuthProvider>{shell}</AuthProvider>);
 }
 
 describe("AppShell 桌面应用壳与键盘导航", () => {
-  it("渲染工作区导航、主内容与上下文栏三层结构", () => {
+  it("渲染工作区导航与主内容两层结构", () => {
     renderShell(
-      <AppShell contextRail={<p>上下文内容</p>}>
+      <AppShell>
         <h1>主内容</h1>
       </AppShell>
     );
     expect(screen.getByRole("navigation", { name: "工作区导航" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveTextContent("主内容");
-    // 同一节点在桌面固定侧栏与小视口页面区域之间切换，不得重复挂载内容。
-    expect(screen.getAllByText("上下文内容")).toHaveLength(1);
   });
 
   it("导航链接按视觉顺序排列且当前页有 aria-current", () => {
     renderShell(<AppShell>内容</AppShell>);
     // 品牌链接位于侧栏但不在 <nav> 地标内：按侧栏作用域断言视觉顺序
+    // （阶段 12 后个人资料移入账户菜单，不再作为导航链接）。
     const aside = screen.getByRole("complementary", { name: "工作区导航侧栏" });
     const links = within(aside).getAllByRole("link");
     expect(links.map((a) => a.getAttribute("href"))).toEqual([
       "/",
       "/knowledge-bases",
       "/conversations",
-      "/profile",
     ]);
     expect(screen.getByRole("link", { name: "知识库" })).toHaveAttribute("aria-current", "page");
   });
