@@ -11,7 +11,8 @@ import type {
   DocumentTaskType,
 } from "@/lib/api/types";
 
-const taskTypeLabel: Record<DocumentTaskType, string> = {
+/** 处理阶段中文标签（FR-005）：详情与任务历史共用，不得各自复制内部枚举文案。 */
+export const taskTypeLabel: Record<DocumentTaskType, string> = {
   parse: "解析",
   chunk: "分块",
   embed: "嵌入",

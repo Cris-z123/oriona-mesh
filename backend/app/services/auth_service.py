@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.middleware.errors import ApiError
 from app.api.v1.schemas.common import VALIDATION_ERROR_MSG
+from app.core.password_policy import is_valid_registration_password
 from app.core.security import (
     ACCESS_TOKEN_TTL_SECONDS,
     REFRESH_TOKEN_LIFETIME_DAYS,
@@ -59,6 +60,9 @@ class AuthService:
         契约（openapi.yaml）中注册只返回用户、不返回令牌：客户端随后调用登录获取
         会话令牌，因此注册不创建登录会话，避免孤儿 session 行。
         """
+        if not is_valid_registration_password(password):
+            # API 入口由 Pydantic 拒绝；这里保留服务层防御，避免内部调用绕过 FR-001。
+            raise ApiError(10003, VALIDATION_ERROR_MSG, 400)
         normalized = _normalize_or_400(email)
         existing = self.session.scalar(select(User).where(User.email == normalized))
         if existing is not None:

@@ -237,6 +237,62 @@ class TestLoginCredentialsOnly10004:
 
 
 # ---------------------------------------------------------------------------
+# 2a. 注册密码规则与知识库规范化名称冲突（US4 / FR-001、FR-003）
+# ---------------------------------------------------------------------------
+class TestCoreWorkflowValidation:
+    @pytest.mark.parametrize(
+        ("email", "password"),
+        [
+            ("t142-short@example.com", "abc1234"),
+            ("t142-no-letter@example.com", "12345678"),
+            ("t142-no-digit@example.com", "abcdefgh"),
+        ],
+    )
+    def test_registration_rejects_password_without_required_strength(
+        self,
+        client: TestClient,
+        db_session: Session,
+        clean_rate_limit_keys,
+        email: str,
+        password: str,
+    ) -> None:
+        """FR-001：服务端拒绝短密码、纯数字和纯字母密码，且不创建用户。"""
+        before = db_session.scalar(select(func.count()).select_from(User))
+        resp = _register(client, email, password=password)
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["code"] == 10003
+        assert body["data"] is None
+        assert db_session.scalar(select(func.count()).select_from(User)) == before
+
+    def test_create_and_rename_normalized_name_conflicts_return_20016(
+        self, client: TestClient, clean_rate_limit_keys
+    ) -> None:
+        """FR-003：同一用户的 trim + casefold 名称冲突统一映射为 20016/409。"""
+        tokens = _register_tokens(client, "t142-names@example.com")
+        headers = _auth_header(tokens["access_token"])
+        first = _create_kb(client, headers, "  Research Notes  ")
+
+        created = client.post(
+            "/v1/knowledge-bases", json={"name": "research notes"}, headers=headers
+        )
+        assert created.status_code == 409
+        assert created.json()["code"] == 20016
+        assert created.json()["msg"] == "知识库名称已存在，请更换名称"
+
+        second = _create_kb(client, headers, "Personal")
+        renamed = client.patch(
+            f"/v1/knowledge-bases/{second}",
+            json={"name": "  RESEARCH NOTES  "},
+            headers=headers,
+        )
+        assert renamed.status_code == 409
+        assert renamed.json()["code"] == 20016
+        assert renamed.json()["msg"] == "知识库名称已存在，请更换名称"
+        assert first != second
+
+
+# ---------------------------------------------------------------------------
 # 3. 10006/401 无效/过期 refresh token（openapi InvalidRefreshToken）
 # ---------------------------------------------------------------------------
 class TestInvalidRefreshToken10006:

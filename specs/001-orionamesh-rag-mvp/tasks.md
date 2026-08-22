@@ -209,7 +209,7 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 - [x] T098 [P] 创建前端多阶段 Docker 镜像并用根 pnpm 锁文件锁定安装与构建于 `deploy/docker/frontend.Dockerfile`
 - [x] T099 创建 PostgreSQL、Redis、单次串行 `alembic upgrade head` 的 one-off migrate、后端 API、Celery worker 和前端的 Docker Compose 编排，为 API/worker 共同挂载 `/data/orionamesh` 命名持久卷并验证共用网关/限流配置；T133 修订为 API/worker 使用同一必填 `BACKEND_IMAGE`、前端使用必填 `FRONTEND_IMAGE`，服务器不再回退到 build，于 `deploy/compose/compose.yaml`
 - [x] T100 [P] 创建后端质量、迁移（含 last_login 可空、Citation 非空/唯一、delete_cleanup、知识库 `active/deleting/delete_failed` 与 `delete_error_code=20015` 配对约束）、扩展、OpenAPI、SSE、解析依赖、本地卷、HS256 认证配置、限流和模型网关必填 endpoint/评分契约校验脚本于 `scripts/check-backend.sh`、`scripts/verify-contracts.sh`
-- [x] T101 [P] 创建前端 pnpm lint、format、类型检查、单测和端到端校验脚本于 `scripts/check-frontend.sh`
+- [x] T101 [P] 创建前端 pnpm lint、format、类型检查与 Vitest 校验脚本于 `scripts/check-frontend.sh`；浏览器端 E2E 部分将由 T141 废弃并删除
 - [x] T102 创建 GitHub Actions PR CI：uv/根 pnpm 锁定安装、Ruff、Pyright、ESLint、Prettier、类型检查、单元/集成/契约/架构测试、迁移与契约校验于 `.github/workflows/ci.yml`
 - [x] T103 创建 GitHub Actions 双镜像构建与 Trivy 漏洞扫描门禁工作流（HIGH/CRITICAL 即失败）；正式 tag 的镜像归档与 GitHub Release 交付由 T133 修订，于 `.github/workflows/image.yml`
 - [x] T104 [P] 编写 Docker Compose 健康/就绪、HS256 密钥缺失/过短、模型 endpoint 缺失/非法/非回环 HTTP 时拒绝就绪且 HTTPS 与本机回环 HTTP 可用、one-off 迁移成功后才切换 API/worker、迁移失败保持旧容器、API/worker 不自动迁移、容器重建后持久卷保留、锁文件不可变安装、GitHub Release 打包与仅 Nginx 公开端口静态契约测试于 `backend/tests/integration/test_delivery_stack.py`
@@ -285,17 +285,17 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ---
 
-## 阶段 10：前端用户故事 3 渲染与端到端联调（仅在 T105 后）
+## 阶段 10：前端用户故事 3 渲染与 Vitest 联调（仅在 T105 后）
 
-**目标**：完成处理诊断、删除体验和浏览器端的端到端质量门禁。
+**目标**：完成处理诊断、删除体验和 Vitest 确定性交互验证。
 
 **独立测试**：资料处理失败或中断时用户可理解终态和失败原因；删除后新问答排除资料，历史引用仍显示快照。
 
 ### 先写测试与替身
 
 - [x] T118 [P] [US3] 编写完整 DocumentTask DTO、异步失败码、失败终态、删除确认、`20015` 删除未完成墓碑/重试删除与不可见重处理入口组件失败测试于 `frontend/tests/component/user-story-3.test.tsx`
-- [x] T119 [US3] 配置前后端契约替身与浏览器端到端测试环境于 `frontend/tests/e2e/fixtures/api.ts`、`frontend/playwright.config.ts`
-- [x] T120 [US3] 编写认证、本人基本资料查看/更新、上传重放、限流、轮询、空文档失败删除、资料与知识库删除中重复 DELETE 无副作用、`delete_failed/20015` 墓碑与重试删除、对话、SSE 三类终态、引用快照及跨用户知识库 `20002/404`/其他资源 `20007/404` 端到端失败测试于 `frontend/tests/e2e/orionamesh-mvp.spec.ts`
+- [x] T119 [US3] 已废弃：原浏览器端 E2E 环境不再属于项目测试策略；相关产物由 T141 删除。
+- [x] T120 [US3] 已废弃：原浏览器端 E2E 场景迁移为 Vitest 单元/组件覆盖；相关产物由 T141 删除。
 
 ### 前端实现
 
@@ -348,6 +348,65 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 
 ---
 
+## 阶段 12：核心用户流程体验修复
+
+**目标**：以“注册/登录/退出 → 知识库 → 资料 → 对话”四条连续路径完成最后一轮前后端与 UI 修复；不新增 E2E，所有前端验证均为 Vitest 单元/组件测试。
+
+**独立测试**：用户可从注册进入已登录工作区、创建并进入唯一知识库、上传并查看资料、在该知识库范围内创建和恢复对话；每个失败、删除、刷新、切换和窄屏入口都有安全提示与继续路径。
+
+### 先写失败测试
+
+- [x] T140 [P] [US4] 为确认密码、字母数字密码规则、认证恢复失败、表单 `trace_id`、账户菜单与窄屏等价入口编写 Vitest 组件失败测试于 `frontend/tests/component/core-auth-workflow.test.tsx`
+- [x] T141 [P] [US4] 删除 Playwright 配置、E2E 替身/用例、`test:e2e` 脚本和 `@playwright/test` 依赖，并更新锁文件与前端质量脚本；保留 Vitest 单元/组件测试于 `frontend/package.json`、`pnpm-lock.yaml`、`frontend/playwright.config.ts`、`frontend/tests/e2e/`、`scripts/check-frontend.sh`
+- [x] T142 [P] [US4] 为知识库规范化名称并发唯一性、`20016/409`、删除态不占用名称和密码服务端规则编写后端契约/集成失败测试于 `backend/tests/contract/test_business_error_codes.py`、`backend/tests/integration/`
+- [x] T143 [P] [US4] 为创建后进入资料工作区、描述清空、上传接受/筛选后终态、详情抽屉与删除后清理上下文编写 Vitest 组件失败测试于 `frontend/tests/component/core-knowledge-document-workflow.test.tsx`
+- [x] T144 [P] [US4] 为知识库/会话 URL 恢复、超过单页的知识库选择、会话 mutation 错误、无效会话、跨会话关闭引用、消息加载与输入快捷键编写 Vitest 组件失败测试于 `frontend/tests/component/core-conversation-workflow.test.tsx`
+
+### 后端与契约基础
+
+- [x] T145 [US4] 实现注册密码的服务端验证、知识库 `normalized_name`、部分唯一索引迁移、并发冲突映射 `20016/409`，并同步 Pydantic、仓储、服务和 API 错误注册于 `backend/app/`、`backend/migrations/versions/`
+- [x] T146 [US4] 更新前端 API DTO/客户端以消费 `20016`、获取单个知识库，并使 XHR 上传在一次可恢复的会话轮换后使用同一 `Idempotency-Key` 重放于 `frontend/src/lib/api/client.ts`、`frontend/src/lib/api/types.ts`
+
+### 前端核心路径实现
+
+- [x] T147 [US4] 实现确认密码与客户端规则、认证恢复错误/重试/退出、表单安全错误及 `trace_id` 呈现于 `frontend/src/features/auth/`、`frontend/src/features/profile/`、`frontend/src/components/ui/error-state.tsx`
+- [x] T148 [US4] 重构桌面/窄屏应用壳：保留侧栏品牌/折叠、知识库管理/对话导航和底部首字母账户菜单，移除默认 ContextRail；会话面板保留在左侧全局侧栏，但仅在对话路由且知识库已明确时显示，其条件组合由 T157 完成，于 `frontend/src/components/app-shell/`、`frontend/src/features/conversations/ConversationSidebar.tsx`、`frontend/src/stores/ui-store.ts`
+- [x] T149 [US4] 实现知识库创建后导航、打开资料入口、重名/改名/删除错误与重试、描述清空，以及删除当前工作区后的安全返回于 `frontend/src/features/knowledge-bases/`、`frontend/src/app/knowledge-bases/`
+- [x] T150 [US4] 将资料页改为列表优先和右上/空态上传入口；显示上传接受反馈、跨筛选批次状态更新、可读阶段/大小/时间、详情抽屉和可恢复读取错误于 `frontend/src/features/documents/`、`frontend/src/app/knowledge-bases/[knowledgeBaseId]/page.tsx`
+- [x] T151 [US4] 重构会话工作区：URL 恢复当前知识库与对话、正文顶部知识库选择、空态输入即建会话、切换确认、错误/返回、引用清理、消息加载与固定输入区；会话面板仍位于左侧全局侧栏，其条件显示、禁止默认知识库和即时消息体验分别由 T157/T159 完成，于 `frontend/src/features/conversations/`、`frontend/src/features/citations/`、`frontend/src/app/conversations/page.tsx`
+
+### 验证与交付
+
+- [x] T152 [US4] 运行后端迁移、OpenAPI 契约、受影响后端测试，以及前端 lint、format、类型检查和全部 Vitest；记录四条核心流程验证结果，确认仓库不存在 Playwright/E2E 产物于 `specs/001-orionamesh-rag-mvp/quickstart.md`（754 passed/2 skipped + 契约 172 passed/1 skipped + 前端 118 passed，见「核心工作流体验修订验证（T152，已通过）」；人工浏览器冒烟标记为待执行）、`scripts/check-frontend.sh`
+
+---
+
+## 阶段 13：前端体验一致性修复
+
+**目标**：消除资料、知识库和对话间的错误上下文与延迟反馈；以“明确知识库 → 立即可见资料 → 即时可见问题与回答”为连续主线收敛工作区。不得改动后端 API、数据模型、状态机、模型出口或 E2E 策略。
+
+**独立测试**：用户在多知识库环境下不会被静默切换至其他知识库；上传一经接受立即在列表看见；提问后立即看见自己的问题与助手生成状态；所有加载、错误、空列表和成功反馈语义互斥且可恢复。
+
+### 先写失败测试
+
+- [x] T153 [P] [US4] 为对话工作区无默认知识库、全局非对话页面不展示会话历史、知识库切换重置页码/选择、超过首批的知识库可选择、会话删除只发送一次请求编写 Vitest 组件失败测试于 `frontend/tests/component/core-conversation-workflow.test.tsx`
+- [x] T154 [P] [US4] 为上传接受后即时出现非终态资料行、筛选条件下的资料刷新、上传中再次选择文件的明确行为、资料/知识库读取失败不显示伪空态、资料页显示知识库名称编写 Vitest 组件失败测试于 `frontend/tests/component/core-knowledge-document-workflow.test.tsx`
+- [x] T155 [P] [US4] 为会话详情加载态、发送后即时用户消息、流式回答跟随/回到最新、消息换行、历史与引用读取失败重试、创建/保存/重命名/删除成功反馈编写 Vitest 组件失败测试于 `frontend/tests/component/core-conversation-workflow.test.tsx`、`frontend/tests/component/ui-foundation.test.tsx`
+- [x] T156 [P] [US4] 为注册密码规则的预先提示、密码与确认密码字段顺序和无效输入阻断请求编写 Vitest 组件失败测试于 `frontend/tests/component/core-auth-workflow.test.tsx`
+
+### 前端实现
+
+- [x] T157 [US4] 重构应用壳与对话工作区组合：`ConversationSidebar` 保持在左侧全局 `WorkspaceNav`，仅在对话路由且存在 URL 明确知识库时呈现，绝不移入中央主内容区；移除“第一个有效知识库”回退，支持访问全部有效知识库，切换时清理会话页码、选中态和引用选择，并修复会话删除重复提交，于 `frontend/src/components/app-shell/`、`frontend/src/features/conversations/`
+- [x] T158 [US4] 重构资料工作区：标题展示所属知识库，上传入口位于标题主操作区与空状态；上传接受后立即更新当前知识库资料列表并显示明确非终态；对并发上传提供一致的禁用或独立批次状态；读取失败与空状态互斥，于 `frontend/src/app/knowledge-bases/[knowledgeBaseId]/page.tsx`、`frontend/src/features/documents/`
+- [x] T159 [US4] 重构消息线程：实现标准 AI 单列消息流（用户右侧紧凑气泡、助手左侧无边框正文、引用紧随回答）、临时用户消息与助手草稿的终态替换、详情加载骨架、历史/引用错误重试、多行渲染、底部自动跟随和“回到最新内容”入口，且不打断用户阅读历史；流式状态只附着于助手正文末尾，于 `frontend/src/features/conversations/MessageThread.tsx`、`frontend/src/features/conversations/useMessageStream.ts`、`frontend/src/features/citations/`
+- [x] T160 [US4] 实现统一的短暂成功反馈并应用到知识库创建/保存、会话重命名/删除和资料上传接受；补充注册表单密码规则提示与自然字段顺序，于 `frontend/src/components/ui/`、`frontend/src/features/auth/`、`frontend/src/features/knowledge-bases/`、`frontend/src/features/conversations/`、`frontend/src/features/documents/`
+
+### 验证与交付
+
+- [x] T161 [US4] 运行受影响 Vitest 组件测试、完整前端 Vitest、lint、format 检查和类型检查；以人工浏览器冒烟复核桌面浅/深色与窄屏下的注册、创建知识库、上传、首次提问、切换知识库、会话删除和错误恢复。不得恢复或新增浏览器端 E2E，于 `frontend/`、`scripts/check-frontend.sh`、`specs/001-orionamesh-rag-mvp/quickstart.md`
+
+---
+
 ## 依赖与执行顺序
 
 ```text
@@ -362,12 +421,14 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
                 → 阶段 8.1（共享 UI 与状态基础）
                   → 阶段 9（US2 前端）
                     → 阶段 10（US3 前端与联调）
-                    → 阶段 11（收尾）
+                      → 阶段 11（收尾）
+                        → 阶段 12（US4 核心用户流程体验修复）
+                          → 阶段 13（US4 前端体验一致性修复）
 ```
 
 - **T091 是 A5 门禁**：T092–T105 不得在其通过前开始；**T105 是 A6 门禁**：阶段 8、8.1、9、10 的前端与联调任务不得在其通过前开始；阶段 9 另依赖 T134–T138。
 - **US1 后端**依赖阶段 1–2；**US2 后端**依赖 US1 已产生可检索完成资料；**US3 后端**依赖 US1 的状态机与删除基础。
-- 前端用户故事沿用后端顺序，以避免消费未冻结 API；阶段 8、8.1、9、10 的 `[P]` 测试可与不同组件实现并行。
+- 前端用户故事沿用后端顺序，以避免消费未冻结 API；阶段 8、8.1、9、10、12、13 的 `[P]` 测试可与不同组件实现并行。阶段 12 的 T145/T146 完成后，T147～T151 可按文件边界并行，最后执行 T152；阶段 13 必须先完成 T153～T156，再按 T157～T160 实现，最后执行 T161。
 
 ## 并行机会
 
@@ -377,7 +438,7 @@ A5/A6 门禁；阶段 8–10 才允许开发前端。前端不得直接访问数
 - US2：T060–T064 可按会话、检索、拒答、SSE 与模型弹性分文件并行；T075–T077 在对应实现后并行。
 - US3：T078/T079 可并行；T083 在状态与删除实现后执行。
 - 工程化：T094–T098、T100/T101、T103/T104 可按不同文件并行。
-- 前端仅在 T105 后：US1 的 T106/T107、共享 UI 的 T134/T135、US3 的 T118 可先独立建立失败测试；US2 的 T113 依赖 T134–T138。
+- 前端仅在 T105 后：US1 的 T106/T107、共享 UI 的 T134/T135、US3 的 T118 可先独立建立失败测试；US2 的 T113 依赖 T134–T138；核心流程体验修复以 T140～T144 先写测试并淘汰 E2E，T145/T146 是其实现前置。阶段 13 以 T153～T156 先写失败测试，再进入 T157～T160；不引入 E2E。
 
 ## 用户故事并行执行示例
 
@@ -426,11 +487,13 @@ MVP 仍需继续完成 T060–T105 后再进入前端。
 
 1. T105 后先完成阶段 8，再完成阶段 8.1 的共享 UI 与状态基础，演示认证、知识库、上传和资料状态。
 2. 继续阶段 9，演示绑定知识库的流式可信问答与来源。
-3. 完成阶段 10 和 11，进行端到端验证与文档收尾。
+3. 完成阶段 10 和 11，进行 Vitest 验证与文档收尾。
+4. 完成阶段 12，验证四条核心用户路径后才进入阶段 13。
+5. 完成阶段 13 的体验一致性验证后，才进入下一阶段开发。
 
 ## 备注
 
 - `[P]` 仅表示不同文件且不依赖同一未完成输出；不改变 T091/T105 的后端先行门禁。
 - 任务 T001–T091 为后端或后端验证任务；T092–T105 为工程化、部署与 CI/CD 任务；
-  T106–T121 及 T134–T138 为前端或前后端联调任务。
+  T106–T121、T134–T138、T140–T152 及 T153–T161 为前端或前后端联调任务。
 - 不实现资料重处理、资料替换、纯聊天和自助密码重置；这些需求不得在任务执行中重新引入。

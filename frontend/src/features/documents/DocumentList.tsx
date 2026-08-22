@@ -75,7 +75,7 @@ export function DocumentList({
 
   return (
     <div className="space-y-4">
-      {error ? <ErrorState error={error} /> : null}
+      {error ? <ErrorState error={error} onRetry={() => void list.refetch()} /> : null}
 
       <div className="flex items-center gap-2">
         <Select
@@ -105,7 +105,7 @@ export function DocumentList({
             </li>
           ))}
         </ul>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !error ? (
         <EmptyState title="暂无资料" description="上传第一份资料后在此查看处理状态" />
       ) : (
         <ul className="space-y-2" aria-busy={list.isFetching || undefined}>

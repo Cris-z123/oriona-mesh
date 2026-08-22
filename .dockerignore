@@ -29,7 +29,6 @@ frontend/.next
 frontend/tests
 frontend/.env
 frontend/.env.*
-frontend/playwright-report
 frontend/test-results
 frontend/coverage
 

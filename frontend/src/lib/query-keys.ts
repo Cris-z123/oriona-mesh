@@ -7,6 +7,7 @@ import type { DocumentStatusFilter } from "@/lib/api/types";
 export const queryKeys = {
   knowledgeBases: (page: number, pageSize: number) =>
     ["knowledgeBases", { page, pageSize }] as const,
+  knowledgeBaseDetail: (knowledgeBaseId: string) => ["knowledgeBases", knowledgeBaseId] as const,
   knowledgeBasesAll: () => ["knowledgeBases"] as const,
   documents: (knowledgeBaseId: string) => ["knowledgeBases", knowledgeBaseId, "documents"] as const,
   documentList: (

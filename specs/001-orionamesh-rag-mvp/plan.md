@@ -20,7 +20,7 @@ Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回
 **Language/Version**: Python 3.12；TypeScript 5.x；Node.js 22 LTS  
 **Primary Dependencies**: FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、Celery、Redis、LangChain、structlog、PyJWT；Next.js、React、Tailwind CSS、Shadcn/UI、TanStack Query、Zustand、next-themes、React Hook Form、Zod、Pino
 **Storage**: PostgreSQL 16（pgvector、pg_trgm）；Redis 7 仅用于队列与瞬时限流；MVP 使用挂载到 `/data/orionamesh` 的本地持久卷并只保存相对对象键  
-**Testing**: pytest、Ruff、Pyright、OpenAPI 校验、架构/契约/集成/安全测试；Vitest、Testing Library、Playwright、ESLint、Prettier、TypeScript  
+**Testing**: pytest、Ruff、Pyright、OpenAPI 校验、架构/契约/集成/安全测试；Vitest、Testing Library、ESLint、Prettier、TypeScript（前端不保留 Playwright 或浏览器端 E2E）
 **Target Platform**: Linux x86_64 容器；Docker Compose 单机部署；GitHub Actions 构建/扫描与 GitHub Releases 归档交付
 **Project Type**: 前后端分离 Web 应用，后端 REST API + SSE  
 **Performance Goals**: SC-001～SC-007 的量化值为产品成功观察指标；当前实施阶段不建立固定评测集、比例断言、性能阈值门禁或发布阻断条件  
@@ -78,7 +78,7 @@ backend/
 frontend/
 ├── app/
 ├── src/{components,features,lib,stores}
-└── tests/{unit,component,e2e}/
+└── tests/{unit,component}/
 
 scripts/
 deploy/
@@ -106,7 +106,9 @@ deploy/
 6. **A6 工程化与后端交付**：pnpm 前端骨架、Docker、CI，以及后端架构、迁移、契约和容器验证。
 7. **B1 前端基础**：Next.js、API 客户端、认证状态、错误映射、Pino 脱敏。
 8. **B2 前端业务渲染**：知识库、资料状态、会话、SSE 增量、引用展示。
-9. **B3 联调与交付**：Playwright、Docker Compose、CI/CD、运维和回滚说明。
+9. **B3 联调与交付**：Vitest 核心流程组件测试、Docker Compose、CI/CD、运维和回滚说明。
+10. **B4 核心工作流体验修复**：后端密码与知识库名称约束、工作区信息架构、资料工作区、会话恢复与错误反馈；先更新冻结契约与数据约束，再以 Vitest 覆盖注册/登录、知识库、资料和对话四条用户路径。
+11. **B5 前端体验一致性修复**：只在前端修正知识库上下文、资料接受后可见性、对话即时反馈、读取/写入反馈和工作区层级；不改变已冻结的 REST/SSE、数据模型、后端状态机或模型出口。
 
 SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、用户比例断言或性能阈值阻断；
 相关核心行为通过对应 FR 的确定性测试验证。SC-008 继续作为模型出口安全自动化门禁。
@@ -133,6 +135,24 @@ SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、�
 - 向量候选只保留余弦相似度不低于 `0.65` 的项，关键词候选只保留 pg_trgm 相似度不低于 `0.30` 的项；阈值可配置。两路过滤及融合后为空时直接输出可信无证据答复，不调用生成模型。
 - Citation 详情和 SSE 使用同一 DTO；`live` 必须返回两个来源 ID，`snapshot` 必须使两个 ID 为空。
 - assistant 创建后，正常完成及可信无证据答复为 `completed/stop`，供应商、模型或服务错误为 `failed/error`，客户端断开为 `cancelled/cancelled`。维护扫描器对超过 `MESSAGE_STREAMING_STALE_SECONDS` 的记录条件更新为 `failed/error`；该阈值必须覆盖全部可配置改写、重排及生成尝试预算加 60 秒，默认 360 秒。
+
+### 4.1 核心工作流体验修复
+
+- 注册 API 保持最小传输字段；确认密码只在前端校验。后端和客户端必须保持“至少 8 字符且同时含字母、数字”的同一规则。
+- `knowledge_bases` 增加内部 `normalized_name`，以 `(user_id, normalized_name) WHERE status = 'active'` 的部分唯一索引保证并发安全；创建/改名冲突使用新增 `20016/409` 契约。删除中和删除失败记录不占用该名称。
+- 前端工作区由 `AppShell`、账户菜单和中央内容区组成；本条中原“壳层侧栏承载会话面板”的无条件展示已由 4.2 取代：会话历史仍位于左侧全局侧栏，但只在对话路由和明确知识库上下文下显示。当前知识库选择位于对话主内容区顶部，空态输入即新建会话，切换知识库清空当前会话前须确认。当前知识库和会话以 URL 为恢复来源。`ContextRail` 不作为默认布局组成。
+- 资料页以列表为主，创建后直接导航进入；上传入口固定在标题操作区和空状态，详情用可关闭抽屉承载。上传批次与资料筛选解耦，认证恢复后以同一幂等键安全重放一次。
+- 会话页把知识库上下文放在正文顶栏，消息区独立滚动，输入区固定在底部。切换/删除/失去会话访问权时，清理引用抽屉本地选择器。
+- 所有核心写操作在相邻区域显示安全错误和可用重试；认证恢复与页面级读取失败使用完整错误状态，保留可复制 `trace_id`。
+
+### 4.2 前端体验一致性修复
+
+- 全局 `AppShell` 承载品牌、工作区导航和账户菜单；会话历史组合在左侧 `WorkspaceNav`，仅在对话路由且 URL 中明确知识库时显示，绝不进入中央主内容区。它不能在资料、知识库或个人资料页面回退到任意第一个有效知识库。
+- 对话首屏未选择知识库时显示明确选择态；知识库选择器以分页、搜索或等价按需加载覆盖全部有效知识库。切换知识库后，重置会话分页、选中会话和引用选择。
+- 上传成功响应后立即更新对应资料查询，使 `pending/queued/processing` 资料可见；轮询仅负责后续终态更新。上传控件对并发批次采用明确的阻止或独立状态呈现，不得覆盖进度。
+- 会话发送维护仅当前请求生命周期内的临时用户消息和助手草稿；服务端终态到达后精确失效并由持久化消息替换。消息列表维护用户是否停留底部，自动跟随新内容或显示“回到最新内容”入口，且保留原始换行。
+- 会话主内容采用标准 AI 单列阅读流：用户消息右对齐紧凑气泡，助手消息左对齐无边框正文，引用紧随回答；消息历史只保留在左侧 `WorkspaceNav`，不得在中央重复。流式光标与生成提示属于助手正文末尾，不新增独立大卡片。
+- 读取失败、加载、空列表与成功反馈由统一反馈组件组合：失败不得降级为空列表，写入成功使用短暂非阻塞反馈，错误继续显示安全 `msg` 和可复制 `trace_id`。
 
 ### 5. 上传、幂等与恢复边界
 

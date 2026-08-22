@@ -11,9 +11,9 @@ import {
   type ReactNode,
 } from "react";
 
-import { ApiError, getMe, logout as apiLogout } from "@/lib/api/client";
+import { ApiError, asApiError, getMe, logout as apiLogout } from "@/lib/api/client";
 import { clearSession, getSession, subscribeSession, type SessionState } from "@/lib/api/session";
-import type { User } from "@/lib/api/types";
+import { ERROR_CODES, type User } from "@/lib/api/types";
 
 interface AuthContextValue {
   session: SessionState | null;
@@ -22,6 +22,8 @@ interface AuthContextValue {
   ready: boolean;
   signOut: () => Promise<void>;
   updateCurrentUser: (user: User) => void;
+  recoveryError: ReturnType<typeof asApiError> | null;
+  retryRecovery: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -64,48 +66,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     status: "pending" | "done";
     user: User | null;
   }>({ sessionKey: null, status: "done", user: null });
+  const [recoveryError, setRecoveryError] = useState<ReturnType<typeof asApiError> | null>(null);
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
 
   useEffect(() => {
     if (!session || !sessionKey) return;
 
     let cancelled = false;
-    let retryTimer: number | undefined;
-    let retries = 0;
     const attempt = () => {
       getMe()
         .then((me) => {
-          if (!cancelled) setMeResult({ sessionKey, status: "done", user: me });
+          if (cancelled) return;
+          setMeResult({ sessionKey, status: "done", user: me });
+          // 重试成功后必须清除上次的恢复错误，否则恢复屏在后续会话中残留。
+          setRecoveryError(null);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
-          if (err instanceof ApiError && err.code === 10001) {
+          if (err instanceof ApiError && err.code === ERROR_CODES.TOKEN_EXPIRED) {
             // 会话已过期且无法恢复：清除本地会话，订阅回调会触发重定向
             clearSession();
             setMeResult({ sessionKey, status: "done", user: null });
+            setRecoveryError(null);
             return;
           }
-          // 瞬时错误：有界延迟重试，避免把有效会话误判为未登录
-          retries += 1;
-          if (retries <= 2) {
-            retryTimer = window.setTimeout(attempt, 2000);
-          } else {
-            setMeResult({ sessionKey, status: "done", user: null });
-          }
+          setMeResult({ sessionKey, status: "done", user: null });
+          setRecoveryError(asApiError(err));
         });
     };
     attempt();
     return () => {
       cancelled = true;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [session, sessionKey]);
+  }, [session, sessionKey, recoveryAttempt]);
 
   const isCurrentSession = sessionKey !== null && meResult.sessionKey === sessionKey;
   const user = isCurrentSession && meResult.status === "done" ? meResult.user : null;
   const ready = hydrated && (session ? isCurrentSession && meResult.status === "done" : true);
 
   const signOut = useCallback(async () => {
-    await apiLogout();
+    try {
+      await apiLogout();
+    } finally {
+      clearSession();
+    }
+  }, []);
+  const retryRecovery = useCallback(() => {
+    setRecoveryAttempt((current) => current + 1);
   }, []);
 
   const updateCurrentUser = useCallback(
@@ -119,8 +126,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ session, user, ready, signOut, updateCurrentUser }),
-    [session, user, ready, signOut, updateCurrentUser]
+    () => ({ session, user, ready, signOut, updateCurrentUser, recoveryError, retryRecovery }),
+    [session, user, ready, signOut, updateCurrentUser, recoveryError, retryRecovery]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

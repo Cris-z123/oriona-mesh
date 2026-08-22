@@ -1,6 +1,8 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Pagination, pageAfterDeletingLastItem } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import type { KnowledgeBase } from "@/lib/api/types";
 import {
   useCreateKnowledgeBase,
@@ -30,6 +33,8 @@ const PAGE_SIZE = 20;
  */
 export function KnowledgeBaseList() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const { notify } = useToast();
   const deletingIdsRef = useRef(new Set<string>());
   const [page, setPage] = useState(1);
 
@@ -57,13 +62,14 @@ export function KnowledgeBaseList() {
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         name: createName.trim(),
         ...(createDescription.trim() !== "" ? { description: createDescription.trim() } : {}),
       });
-      setCreateName("");
-      setCreateDescription("");
-      setPage(1);
+      // 创建成功后直接进入该知识库的资料工作区（T149）；本组件随后卸载，
+      // 重取仅覆盖导航过渡窗口内仍挂载的列表（与删除/改名后的写后重取一致）。
+      notify("知识库已创建");
+      router.push(`/knowledge-bases/${created.id}`);
       await refreshList();
     } catch {
       // 错误已由 mutation.error 呈现
@@ -101,11 +107,12 @@ export function KnowledgeBaseList() {
         id: kb.id,
         input: {
           name: editName.trim(),
-          ...(editDescription.trim() !== "" ? { description: editDescription.trim() } : {}),
+          description: editDescription.trim(),
         },
       });
       setEditingId(null);
       await refreshList();
+      notify("已保存");
     } catch {
       // 错误已由 mutation.error 呈现
     }
@@ -210,12 +217,25 @@ export function KnowledgeBaseList() {
               <li key={kb.id} className="rounded-md border px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{kb.name}</p>
+                    <Link
+                      href={`/knowledge-bases/${kb.id}`}
+                      className="block truncate rounded font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`打开资料 ${kb.name ?? ""}`}
+                      title={`打开资料 ${kb.name ?? ""}`}
+                    >
+                      {kb.name}
+                    </Link>
                     {kb.description ? (
                       <p className="truncate text-sm text-muted-foreground">{kb.description}</p>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push(`/knowledge-bases/${kb.id}`)}
+                    >
+                      打开资料
+                    </Button>
                     <Button variant="outline" onClick={() => startEdit(kb)}>
                       编辑
                     </Button>

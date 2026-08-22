@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.middleware.trace import TRACE_HEADER, TRACE_ID_VAR, current_trace_id
 from app.api.v1.schemas.common import (
     DEFAULT_ERROR_MSG,
+    KNOWLEDGE_BASE_NAME_ALREADY_EXISTS_MSG,
     RESOURCE_NOT_FOUND_MSG,
     VALIDATION_ERROR_MSG,
     error_response,
@@ -37,6 +38,13 @@ class ApiError(Exception):
         self.message = message
         self.http_status = http_status
         super().__init__(message)
+
+
+class KnowledgeBaseNameAlreadyExistsError(ApiError):
+    """当前用户的 active 知识库名称规范化后冲突（FR-003）。"""
+
+    def __init__(self) -> None:
+        super().__init__(20016, KNOWLEDGE_BASE_NAME_ALREADY_EXISTS_MSG, 409)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

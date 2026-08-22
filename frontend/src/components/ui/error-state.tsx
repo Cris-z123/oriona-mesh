@@ -26,7 +26,7 @@ const COPIED_RESET_MS = 2_000;
  * 统一可恢复错误提示（ui-design §5/§6.2）：展示服务端 msg 与可复制 trace_id，
  * 不展示原始响应、令牌或堆栈；状态同时通过图标与文字表达。
  */
-export function ErrorState({ error }: { error: ErrorStateValue }) {
+export function ErrorState({ error, onRetry }: { error: ErrorStateValue; onRetry?: () => void }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -54,6 +54,11 @@ export function ErrorState({ error }: { error: ErrorStateValue }) {
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <div className="min-w-0">
           <p>{error.msg}</p>
+          {onRetry ? (
+            <Button variant="outline" className="mt-2 h-8" onClick={onRetry}>
+              重试
+            </Button>
+          ) : null}
           {error.traceId ? (
             <div className="mt-0.5 flex items-center gap-2 text-xs opacity-70">
               <span>trace_id: {error.traceId}</span>

@@ -292,6 +292,12 @@ export async function listKnowledgeBases(page = 1, pageSize = 20): Promise<Page<
   return envelope.data;
 }
 
+/** 获取单个知识库，工作区深链接必须由服务端确认其可见性。 */
+export async function getKnowledgeBase(id: string): Promise<KnowledgeBase> {
+  const envelope = await request<KnowledgeBase>(`/knowledge-bases/${id}`);
+  return envelope.data;
+}
+
 export async function createKnowledgeBase(input: {
   name: string;
   description?: string;
@@ -456,39 +462,65 @@ export function uploadDocuments(
   options: UploadOptions = {}
 ): Promise<DocumentUploadResult> {
   const idempotencyKey = options.idempotencyKey ?? generateIdempotencyKey();
-  return new Promise<DocumentUploadResult>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${baseUrl()}/knowledge-bases/${knowledgeBaseId}/documents`);
-    const session = getSession();
-    if (session) xhr.setRequestHeader("Authorization", `Bearer ${session.accessToken}`);
-    xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
-    if (options.onProgress) {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) options.onProgress?.(event.loaded, event.total);
-      };
-    }
-    xhr.onload = () => {
-      const envelope = parseEnvelopeText<DocumentUploadResult>(xhr.responseText);
-      if (xhr.status >= 200 && xhr.status < 300 && envelope && envelope.code === 0) {
-        resolve(envelope.data);
-      } else {
-        reject(toApiError(xhr.status, envelope, xhr.getResponseHeader("Retry-After")));
+  const sendOnce = (): Promise<{ result?: DocumentUploadResult; error?: ApiError }> =>
+    new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${baseUrl()}/knowledge-bases/${knowledgeBaseId}/documents`);
+      const session = getSession();
+      if (session) xhr.setRequestHeader("Authorization", `Bearer ${session.accessToken}`);
+      xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
+      if (options.onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) options.onProgress?.(event.loaded, event.total);
+        };
       }
-    };
-    xhr.onerror = () => {
-      reject(
-        new ApiError({
-          code: ERROR_CODE_INTERNAL,
-          msg: INTERNAL_ERROR_MSG,
-          status: 0,
-          traceId: null,
-        })
-      );
-    };
-    const form = new FormData();
-    for (const file of files) form.append("files", file, file.name);
-    xhr.send(form);
-  });
+      xhr.onload = () => {
+        const envelope = parseEnvelopeText<DocumentUploadResult>(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && envelope && envelope.code === 0) {
+          resolve({ result: envelope.data });
+        } else {
+          resolve({
+            error: toApiError(xhr.status, envelope, xhr.getResponseHeader("Retry-After")),
+          });
+        }
+      };
+      xhr.onerror = () => {
+        resolve({
+          error: new ApiError({
+            code: ERROR_CODE_INTERNAL,
+            msg: INTERNAL_ERROR_MSG,
+            status: 0,
+            traceId: null,
+          }),
+        });
+      };
+      const form = new FormData();
+      for (const file of files) form.append("files", file, file.name);
+      xhr.send(form);
+    });
+  return (async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const outcome = await sendOnce();
+      if (outcome.result) return outcome.result;
+      const error = outcome.error!;
+      if (
+        attempt === 0 &&
+        error.status === 401 &&
+        error.code === ERROR_CODE_SESSION_EXPIRED &&
+        (await refreshOnce())
+      ) {
+        continue;
+      }
+      if (error.status === 401 && error.code === ERROR_CODE_SESSION_EXPIRED) clearSession();
+      throw error;
+    }
+    throw new ApiError({
+      code: ERROR_CODE_INTERNAL,
+      msg: INTERNAL_ERROR_MSG,
+      status: 0,
+      traceId: null,
+    });
+  })();
 }
 
 // ---------------------------------------------------------------------------

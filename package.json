@@ -15,7 +15,6 @@
     "format:check": "pnpm --filter frontend format:check",
     "typecheck": "pnpm --filter frontend typecheck",
     "test": "pnpm --filter frontend test",
-    "test:e2e": "pnpm --filter frontend test:e2e",
     "check": "bash scripts/check-backend.sh && bash scripts/check-frontend.sh"
   }
 }

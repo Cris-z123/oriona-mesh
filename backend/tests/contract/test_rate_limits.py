@@ -47,7 +47,8 @@ def _clean_rate_limit_keys(redis_client) -> Generator[None, None, None]:
 
 
 def _register(client: TestClient, email: str):
-    return client.post("/v1/users", json={"email": email, "password": "x" * 8})
+    # FR-001（阶段 12）：注册密码必须同时含字母和数字，否则服务端 400 无法消耗预算。
+    return client.post("/v1/users", json={"email": email, "password": "password123"})
 
 
 class TestAuthIpAndAccount:

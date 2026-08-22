@@ -352,7 +352,8 @@ def _assert_api_ready(timeout: float = 60.0) -> None:
             "api",
             "python",
             "-c",
-            "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)",
+            "import urllib.request; "
+            "urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)",
             check=False,
         )
         if result.returncode == 0:

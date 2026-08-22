@@ -3,8 +3,9 @@ info:
   title: OrionaMesh MVP API
   version: 1.0.0
   x-contract-freeze: >-
-    A5 契约冻结（2026-08-16，T091）：本契约与实现一致，契约门禁已通过
-    （backend 全套件 713 passed/1 skipped，Ruff/Pyright 全绿）。此后任何接口、
+    A5 契约冻结后核心工作流修订（2026-08-20，待 T145/T152 实现与验证）：本次新增
+    注册密码规则与知识库名称冲突契约；在实现、迁移和契约测试同步完成前，不得宣称
+    本契约与实现一致或已通过当前契约门禁。此后任何接口、
     错误码、响应形状变更必须先更新本文件并同步 plan.md/tasks.md；前端 UI
     仅可消费本契约。
   description: >-
@@ -113,6 +114,7 @@ paths:
         '201': { $ref: '#/components/responses/KnowledgeBaseDetails' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/TokenExpired' }
+        '409': { $ref: '#/components/responses/KnowledgeBaseNameAlreadyExists' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
   /knowledge-bases/{knowledgeBaseId}:
@@ -137,7 +139,7 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/TokenExpired' }
         '404': { $ref: '#/components/responses/KnowledgeBaseNotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409': { $ref: '#/components/responses/KnowledgeBaseUpdateConflict' }
         '429': { $ref: '#/components/responses/RateLimitExceeded' }
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
     delete:
@@ -436,6 +438,8 @@ components:
     KnowledgeBaseNotFound: { description: 知识库在当前用户范围内不存在或不可见；业务码 20002，服务端不得全局探测资源归属。, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeBaseNotFoundErrorEnvelope' } } } }
     Conflict: { description: 请求与当前资源状态冲突；业务码 20008，不泄露资源细节。, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceConflictErrorEnvelope' } } } }
     EmailAlreadyExists: { description: 邮箱已注册；业务码 20006，提示“该邮箱已注册，请直接登录”。, content: { application/json: { schema: { $ref: '#/components/schemas/EmailAlreadyExistsErrorEnvelope' } } } }
+    KnowledgeBaseNameAlreadyExists: { description: 当前用户已有同规范化名称的有效知识库；业务码 20016，提示“知识库名称已存在，请更换名称”。, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeBaseNameAlreadyExistsErrorEnvelope' } } } }
+    KnowledgeBaseUpdateConflict: { description: 知识库改名冲突为 20016；删除失败墓碑禁止修改为 20008。, content: { application/json: { schema: { oneOf: [ { $ref: '#/components/schemas/ResourceConflictErrorEnvelope' }, { $ref: '#/components/schemas/KnowledgeBaseNameAlreadyExistsErrorEnvelope' } ] } } } }
     KnowledgeBaseNotReady: { description: 知识库没有已完成资料；业务码 20005，提示用户上传或等待资料处理完成。, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeBaseNotReadyErrorEnvelope' } } } }
     RateLimitExceeded:
       description: 请求超过当前端点类别的服务端限流阈值；业务码 10005，不产生业务副作用。
@@ -584,17 +588,24 @@ components:
           properties:
             code: { const: 20006 }
             msg: { const: 该邮箱已注册，请直接登录 }
+    KnowledgeBaseNameAlreadyExistsErrorEnvelope:
+      allOf:
+        - { $ref: '#/components/schemas/ErrorEnvelope' }
+        - type: object
+          properties:
+            code: { const: 20016 }
+            msg: { const: 知识库名称已存在，请更换名称 }
     ErrorCode:
       type: integer
-      enum: [10001, 10002, 10003, 10004, 10005, 10006, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 20010, 20011, 20012, 20013, 20014, 20015, 50000, 50001]
-      description: 10001 Access Token 无效或过期；10002 当前授权边界内无操作权限；10003 参数校验失败；10004 登录凭证无效（仅邮箱或密码不匹配）；10005 RATE_LIMIT_EXCEEDED；10006 INVALID_REFRESH_TOKEN；20001 DOCUMENT_PARSE_FAILED（异步）；20002 当前用户范围内知识库不存在或不可见；20003 FILE_TOO_LARGE；20004 TOO_MANY_FILES；20005 KNOWLEDGE_BASE_NOT_READY；20006 EMAIL_ALREADY_EXISTS；20007 当前用户范围内资源不存在或不可见；20008 资源状态冲突；20009 UNSUPPORTED_FILE_TYPE；20010 EMPTY_DOCUMENT（异步）；20011 DOCUMENT_STORAGE_FAILED（异步）；20012 DOCUMENT_EMBEDDING_FAILED（异步）；20013 DOCUMENT_FINALIZE_FAILED（异步）；20014 DOCUMENT_RETRY_EXHAUSTED（异步且无稳定根因）；20015 DELETE_CLEANUP_FAILED（资料或知识库删除未完成）；50000 内部错误；50001 RATE_LIMIT_PROTECTION_UNAVAILABLE。
+      enum: [10001, 10002, 10003, 10004, 10005, 10006, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 20010, 20011, 20012, 20013, 20014, 20015, 20016, 50000, 50001]
+      description: 10001 Access Token 无效或过期；10002 当前授权边界内无操作权限；10003 参数校验失败；10004 登录凭证无效（仅邮箱或密码不匹配）；10005 RATE_LIMIT_EXCEEDED；10006 INVALID_REFRESH_TOKEN；20001 DOCUMENT_PARSE_FAILED（异步）；20002 当前用户范围内知识库不存在或不可见；20003 FILE_TOO_LARGE；20004 TOO_MANY_FILES；20005 KNOWLEDGE_BASE_NOT_READY；20006 EMAIL_ALREADY_EXISTS；20007 当前用户范围内资源不存在或不可见；20008 资源状态冲突；20009 UNSUPPORTED_FILE_TYPE；20010 EMPTY_DOCUMENT（异步）；20011 DOCUMENT_STORAGE_FAILED（异步）；20012 DOCUMENT_EMBEDDING_FAILED（异步）；20013 DOCUMENT_FINALIZE_FAILED（异步）；20014 DOCUMENT_RETRY_EXHAUSTED（异步且无稳定根因）；20015 DELETE_CLEANUP_FAILED（资料或知识库删除未完成）；20016 KNOWLEDGE_BASE_NAME_ALREADY_EXISTS；50000 内部错误；50001 RATE_LIMIT_PROTECTION_UNAVAILABLE。
     RegisterInput:
       type: object
       additionalProperties: false
       required: [email, password]
       properties:
         email: { type: string, format: email, description: 服务端去除首尾 Unicode 空白、完成格式校验后对完整邮箱执行 Unicode casefold；该值同时用于账号存储、登录和限流。 }
-        password: { type: string, format: password, minLength: 8 }
+        password: { type: string, format: password, minLength: 8, maxLength: 256, pattern: '^(?=.*[A-Za-z])(?=.*[0-9]).+$', description: 至少 8 个字符且不超过 256，必须同时包含字母和数字；确认密码仅是客户端字段，不属于传输契约。 }
         display_name: { type: string, minLength: 1, maxLength: 100 }
     LoginInput:
       type: object
@@ -618,14 +629,14 @@ components:
       additionalProperties: false
       required: [name]
       properties:
-        name: { type: string, minLength: 1, maxLength: 120 }
+        name: { type: string, minLength: 1, maxLength: 120, description: 去除首尾 Unicode 空白并 Unicode casefold 后，在当前用户有效知识库范围内唯一。 }
         description: { type: string, maxLength: 1000 }
     UpdateKnowledgeBaseInput:
       type: object
       additionalProperties: false
       minProperties: 1
       properties:
-        name: { type: string, minLength: 1, maxLength: 120 }
+        name: { type: string, minLength: 1, maxLength: 120, description: 传入时按创建知识库同一规范化规则校验唯一性。 }
         description: { type: string, maxLength: 1000 }
     CreateConversationInput:
       type: object
