@@ -7,7 +7,7 @@
 将 PDF、DOCX、Markdown 和纯文本资料处理为可检索知识库，并在连续问答中返回可核验的来源引用。
 
 <p>
-  <img src="https://img.shields.io/badge/version-v0.1.0-0C625D?style=flat-square" alt="项目版本 v0.1.0" />
+  <img src="https://img.shields.io/badge/version-v0.2.0-0C625D?style=flat-square" alt="项目版本 v0.2.0" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-534CA5?style=flat-square" alt="MIT 许可证" /></a>
 </p>
 
@@ -124,15 +124,16 @@ uv run pyright
 uv run pytest
 ```
 
-CI 使用锁文件安装依赖，并执行静态检查、类型检查、测试、契约检查和镜像漏洞扫描。完整的质量与交付门禁见
-[quickstart.md](specs/001-orionamesh-rag-mvp/quickstart.md#质量与交付验证)。
+CI 使用锁文件安装依赖，并执行静态检查、类型检查、测试、契约检查和镜像漏洞扫描。
+
+完整的质量与交付门禁见[quickstart.md](specs/001-orionamesh-rag-mvp/quickstart.md#质量与交付验证)。
 
 ## 部署
 
 单机部署使用 GitHub Release 提供的已校验镜像归档：服务器导入 backend/frontend 镜像，再由 Compose
 启动 PostgreSQL、Redis、迁移、API、Worker、前端和 Nginx。服务器不构建应用镜像，也不依赖 GHCR。
 
-首次部署、升级、回滚、镜像校验和腾讯云安全组配置请严格遵循
+首次部署、升级、回滚、镜像校验和安全组配置请严格遵循
 [GitHub Release 单机部署手册](specs/001-orionamesh-rag-mvp/quickstart.md#github-release-单机部署腾讯云-ubuntu-x86_64)。
 
 ## 文档导航
