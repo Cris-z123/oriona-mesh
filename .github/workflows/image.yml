@@ -18,8 +18,37 @@ env:
   IMAGE_TAG: sha-${{ github.sha }}
 
 jobs:
+  verify-release-source:
+    name: Verify release source is merged into main
+    # PR 只需构建与扫描；正式 tag 必须来自已合并的 main 历史。
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # annotated tag 与 main 的可达性校验需要完整提交历史。
+          fetch-depth: 0
+
+      - name: Verify release source is merged into main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          release_commit="$(git rev-list -n 1 "$GITHUB_REF")"
+          if ! git merge-base --is-ancestor "$release_commit" origin/main; then
+            echo "错误：正式 tag 必须指向已合并到 origin/main 的提交。" >&2
+            echo "tag commit: $release_commit" >&2
+            exit 1
+          fi
+          echo "Release commit $release_commit is reachable from origin/main."
+
   build-and-scan:
     name: Build & scan ${{ matrix.service }}
+    needs: verify-release-source
+    # verify-release-source 在 PR 上跳过；tag 上只有来源校验成功才允许构建镜像。
+    if: >-
+      ${{ always() && (needs.verify-release-source.result == 'success' ||
+      needs.verify-release-source.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # upload-artifact@v4 上传工件需要 actions: write；仅此 job 需要，workflow 级仍为 contents: read。

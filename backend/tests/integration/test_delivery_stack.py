@@ -151,6 +151,11 @@ class TestComposeDeploymentContract:
         assert "actions/download-artifact@v4" in workflow
         assert "gh release" in workflow
         assert "sha256sum" in workflow
+        # 正式 tag 只能指向已合并到 main 的提交，不能从功能分支直接制作 Release 镜像。
+        assert "Verify release source is merged into main" in workflow
+        assert "fetch-depth: 0" in workflow
+        assert 'git rev-list -n 1 "$GITHUB_REF"' in workflow
+        assert "git merge-base --is-ancestor" in workflow
         # upload-artifact@v4 上传工件要求 job 具备 actions: write；只给 build-and-scan job 授权。
         assert "actions: write" in workflow
         assert "build-args: ${{ matrix.build_args }}" in workflow
