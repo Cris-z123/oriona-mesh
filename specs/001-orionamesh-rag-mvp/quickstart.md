@@ -6,15 +6,15 @@
 
 后端 A5 实现及契约冻结门禁已通过。验证结果（`backend/`，`uv run pytest` 全量）：
 
-| 门禁 | 测试文件 | 结果 |
-|---|---|---|
-| 启动就绪（迁移/扩展/持久卷/处理名额/检索阈值/streaming 失联上限） | `tests/integration/test_startup_readiness.py` | 26 passed / 1 skipped（win32 只读目录用例） |
-| 业务错误码与统一信封 | `tests/contract/test_business_error_codes.py`、`test_rate_limits.py` | 65 passed |
-| 后端全链路门禁（认证/租户/删除/流水线/检索/引用/SSE 终态/失联恢复） | `tests/integration/test_backend_gate.py` | 30 passed |
-| 架构依赖边界（9 文件） | `tests/architecture/` | 68 passed |
-| 模型出口集成（受控假供应商） | `tests/integration/infrastructure/test_model_egress.py` | 23 passed |
-| 模型出口契约 | `tests/contract/test_model_egress_contract.py` | 68 passed |
-| 全量回归（unit/contract/integration/architecture） | `backend/` 全部 | **713 passed / 1 skipped** |
+| 门禁                                                                | 测试文件                                                             | 结果                                        |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------- |
+| 启动就绪（迁移/扩展/持久卷/处理名额/检索阈值/streaming 失联上限）   | `tests/integration/test_startup_readiness.py`                        | 26 passed / 1 skipped（win32 只读目录用例） |
+| 业务错误码与统一信封                                                | `tests/contract/test_business_error_codes.py`、`test_rate_limits.py` | 65 passed                                   |
+| 后端全链路门禁（认证/租户/删除/流水线/检索/引用/SSE 终态/失联恢复） | `tests/integration/test_backend_gate.py`                             | 30 passed                                   |
+| 架构依赖边界（9 文件）                                              | `tests/architecture/`                                                | 68 passed                                   |
+| 模型出口集成（受控假供应商）                                        | `tests/integration/infrastructure/test_model_egress.py`              | 23 passed                                   |
+| 模型出口契约                                                        | `tests/contract/test_model_egress_contract.py`                       | 68 passed                                   |
+| 全量回归（unit/contract/integration/architecture）                  | `backend/` 全部                                                      | **713 passed / 1 skipped**                  |
 
 质量工具：Ruff format/check 全绿、Pyright 0 errors。契约已冻结于 `contracts/openapi.yaml` 与
 `contracts/model-egress.md`；限流错误语义（`10005/429` + `Retry-After`、`50001/503` fail-closed）
@@ -25,14 +25,14 @@
 
 工程化、部署与 CI/CD 门禁已通过。验证结果：
 
-| 门禁 | 交付物 / 验证 | 结果 |
-|---|---|---|
-| 后端全量回归（含 T104 交付栈测试 16 项：静态编排契约/配置就绪/锁文件/`docker compose config`） | `backend/` `uv run pytest` | 736 passed / 2 skipped |
-| 后端质量工具 | Ruff format/check、Pyright | 全绿 |
-| 契约与部署基线（OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式；迁移离线 SQL 的 last_login 可空/Citation 非空唯一/delete_cleanup/知识库 `delete_error_code=20015` 配对约束；扩展；HS256 无覆盖变量；限流与模型出口默认值；解析依赖；契约测试子集） | `scripts/verify-contracts.sh` | 通过（168 passed / 1 skipped） |
-| 前端质量门禁（根锁文件安装 → ESLint → Prettier → tsc → Vitest） | `scripts/check-frontend.sh` | 通过 |
-| 完整 Compose 冒烟（历史 T132：服务器本地构建双镜像 → one-off migrate → API/worker/前端健康 → 持久卷保留） | `RUN_DELIVERY_SMOKE=1` 下的 `tests/integration/test_delivery_stack.py::TestFullStackSmoke` | **1 passed**（历史结果；T133 改为预导入 Release 镜像后运行） |
-| GitHub Actions（历史 T132） | `ci.yml`（PR CI）、`image.yml`（双镜像构建/Trivy 扫描门禁，不发布镜像） | 已交付；T133 改为正式 tag 发布 GitHub Release |
+| 门禁                                                                                                                                                                                                                                                              | 交付物 / 验证                                                                              | 结果                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| 后端全量回归（含 T104 交付栈测试 16 项：静态编排契约/配置就绪/锁文件/`docker compose config`）                                                                                                                                                                    | `backend/` `uv run pytest`                                                                 | 736 passed / 2 skipped                                       |
+| 后端质量工具                                                                                                                                                                                                                                                      | Ruff format/check、Pyright                                                                 | 全绿                                                         |
+| 契约与部署基线（OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式；迁移离线 SQL 的 last_login 可空/Citation 非空唯一/delete_cleanup/知识库 `delete_error_code=20015` 配对约束；扩展；HS256 无覆盖变量；限流与模型出口默认值；解析依赖；契约测试子集） | `scripts/verify-contracts.sh`                                                              | 通过（168 passed / 1 skipped）                               |
+| 前端质量门禁（根锁文件安装 → ESLint → Prettier → tsc → Vitest）                                                                                                                                                                                                   | `scripts/check-frontend.sh`                                                                | 通过                                                         |
+| 完整 Compose 冒烟（历史 T132：服务器本地构建双镜像 → one-off migrate → API/worker/前端健康 → 持久卷保留）                                                                                                                                                         | `RUN_DELIVERY_SMOKE=1` 下的 `tests/integration/test_delivery_stack.py::TestFullStackSmoke` | **1 passed**（历史结果；T133 改为预导入 Release 镜像后运行） |
+| GitHub Actions（历史 T132）                                                                                                                                                                                                                                       | `ci.yml`（PR CI）、`image.yml`（双镜像构建/Trivy 扫描门禁，不发布镜像）                    | 已交付；T133 改为正式 tag 发布 GitHub Release                |
 
 **现行部署契约（T133，取代上表中的历史本地构建记录）**：
 
@@ -83,47 +83,47 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
 （64 位 uv 0.12.3），前端根 pnpm 工作区（pnpm 10.28.2），测试 PostgreSQL 16 pgvector
 与 Redis 7 由本机容器提供。
 
-| 验证项 | 结果 |
-|---|---|
-| 后端全量回归（unit/contract/integration/architecture，含 T126–T131 评审修复回归；`scripts/check-backend.sh`） | **754 passed / 2 skipped** |
-| 后端质量工具（uv lock --check、Ruff format/check、Pyright） | 全绿（Pyright 0 errors） |
-| 契约与部署基线（`scripts/verify-contracts.sh`：OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式、迁移离线 SQL、配置契约、契约测试子集） | **172 passed / 1 skipped** |
-| 前端全量（`scripts/check-frontend.sh`：根锁文件 frozen 安装 → ESLint → Prettier → tsc → Vitest） | **118 vitest passed（12 文件）**，lint/format/typecheck 全绿；无 Playwright/E2E |
-| 真实启动冒烟（uvicorn + `.env.local`：/health → /ready → 注册/登录/本人资料/建库/上传 202） | **通过**：首次暴露本机开发库从未迁移（`/ready` 缺 vector/pg_trgm），`alembic upgrade head` 后 `/ready` 200，注册/登录/资料/知识库/上传 `202 queued` 全链路信封正确 |
-| 完整 Compose 冒烟（`RUN_DELIVERY_SMOKE=1`：Release 同名双镜像构建 → postgres/redis up → one-off migrate → api/worker/frontend `--no-build --pull never` → nginx 80 → 容器重建后 `/data/orionamesh` 持久卷保留） | **1 passed**（5:00） |
-| 日志白名单审查（T124：核心日志/模型审计/前端 Pino/SSE/引用快照） | **通过**，无代码变更；白名单由 `test_logging.py`/`test_security.py`/`test_audit.py`/`test_model_egress.py`/`test_model_egress_contract.py` 持续断言 |
+| 验证项                                                                                                                                                                                                          | 结果                                                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 后端全量回归（unit/contract/integration/architecture，含 T126–T131 评审修复回归；`scripts/check-backend.sh`）                                                                                                   | **754 passed / 2 skipped**                                                                                                                                         |
+| 后端质量工具（uv lock --check、Ruff format/check、Pyright）                                                                                                                                                     | 全绿（Pyright 0 errors）                                                                                                                                           |
+| 契约与部署基线（`scripts/verify-contracts.sh`：OpenAPI 全 operation 限流策略与 429/Retry-After、SSE 事件模式、迁移离线 SQL、配置契约、契约测试子集）                                                            | **172 passed / 1 skipped**                                                                                                                                         |
+| 前端全量（`scripts/check-frontend.sh`：根锁文件 frozen 安装 → ESLint → Prettier → tsc → Vitest）                                                                                                                | **118 vitest passed（12 文件）**，lint/format/typecheck 全绿；无 Playwright/E2E                                                                                    |
+| 真实启动冒烟（uvicorn + `.env.local`：/health → /ready → 注册/登录/本人资料/建库/上传 202）                                                                                                                     | **通过**：首次暴露本机开发库从未迁移（`/ready` 缺 vector/pg_trgm），`alembic upgrade head` 后 `/ready` 200，注册/登录/资料/知识库/上传 `202 queued` 全链路信封正确 |
+| 完整 Compose 冒烟（`RUN_DELIVERY_SMOKE=1`：Release 同名双镜像构建 → postgres/redis up → one-off migrate → api/worker/frontend `--no-build --pull never` → nginx 80 → 容器重建后 `/data/orionamesh` 持久卷保留） | **1 passed**（5:00）                                                                                                                                               |
+| 日志白名单审查（T124：核心日志/模型审计/前端 Pino/SSE/引用快照）                                                                                                                                                | **通过**，无代码变更；白名单由 `test_logging.py`/`test_security.py`/`test_audit.py`/`test_model_egress.py`/`test_model_egress_contract.py` 持续断言                |
 
 快速验证清单逐项覆盖（全部由上表套件执行并通过，清单项 → 覆盖测试）：
 
-| 清单项 | 覆盖测试 |
-|---|---|
-| 1 迁移/启动/就绪（扩展/持久卷/名额/阈值/失联上限） | `tests/integration/test_startup_readiness.py` |
-| 2 统一信封 code/data/msg/trace_id | `tests/contract/test_api_envelope.py`、`test_business_error_codes.py` |
-| 3 注册/登录/刷新轮换/HS256 JWT 声明与 TTL/Refresh Token 格式与摘要落库/日志脱敏 | `tests/contract/test_auth_api.py`、`tests/integration/auth/test_refresh_rotation.py`、`tests/unit/core/test_security.py`、`test_logging.py` |
-| 4 跨用户 `20002/404`/`20007/404`、无全局探测 | `tests/contract/test_knowledge_bases_api.py`、`tests/integration/repositories/test_tenant_scope.py`、`test_backend_gate.py` |
-| 5 上传 202 收敛、事务补偿、pending 不执行、300 秒接管 | `tests/contract/test_documents_api.py`、`tests/integration/documents/test_upload_and_access.py`、`test_upload_idempotency.py` |
-| 6 整批拒绝 `20009/20003/20004` 零副作用 | `tests/contract/test_documents_api.py` |
-| 7 损坏 PDF 异步 `20001` 固定提示（不伪装 400） | `tests/contract/test_document_status_api.py`、`tests/integration/documents/test_terminal_states.py` |
-| 8 空文档 `20010`、压缩炸弹/路径穿越/宏/脚本/外链/超时 | `tests/unit/services/parsers/test_document_parsers.py`、`tests/integration/documents/test_parse_security.py` |
-| 9 幂等键重放/冲突/超时接管/24h 保留 | `tests/integration/documents/test_upload_idempotency.py` |
-| 10 处理并发 3 名额跨阶段持有、失联回收、attempt/retry 预算 | `tests/integration/documents/test_processing_concurrency.py`、`test_task_recovery.py` |
-| 11 阶段编排/fencing/`current_task_type`/`lease.task_id` 同事务、finalize 发布前不可检索 | `tests/integration/documents/test_pipeline_state_machine.py`、`test_chunk_repository.py` |
-| 12 证据门槛过滤/RRF/可信拒答不调生成 | `tests/unit/services/test_retrieval.py`、`test_answer_rejection.py`、`tests/integration/retrieval/test_tenant_version_filters.py` |
-| 13 检索排除删除态、DELETE 幂等/轮次/墓碑/`retry_delete`、引用快照 | `tests/integration/documents/test_deletion_and_citations.py`、`test_terminal_states.py` |
-| 14 SSE 三类终态、失联 streaming 条件收敛、原始帧判别 | `tests/contract/test_messages_sse_api.py`、`tests/integration/conversations/test_sse_terminal_states.py` |
-| 15 登出幂等/跨用户拒绝、失效/撤销/重放刷新不波及其他会话 | `tests/contract/test_auth_api.py`、`tests/integration/auth/test_refresh_rotation.py` |
-| 16 分页边界、公开状态枚举、隐藏态不可读 | `tests/contract/test_conversations_api.py`、`test_document_status_api.py` |
-| 17 四类调用超时/重试仅网关执行、业务领域降级、Reranker 完整性/回退 | `tests/unit/services/llm/test_resilience.py`、`test_embeddings.py`、`tests/unit/infrastructure/model_gateway/test_gateway.py`、`tests/contract/test_model_egress_contract.py` |
-| 18 分级限流阈值/`10005/429`+`Retry-After`/零业务副作用 | `tests/contract/test_rate_limits.py` |
-| 19 跨实例共享窗口、Redis 故障语义、可信代理 XFF 解析 | `tests/integration/infrastructure/test_redis_rate_limiter.py`、`tests/unit/infrastructure/rate_limit/test_source_ip.py`、`tests/contract/test_rate_limits.py` |
-| 20 四类调用全部经网关、无旁路 | `tests/integration/infrastructure/test_model_egress.py`、`tests/architecture/test_model_gateway_boundaries.py` |
-| 21 脱敏最小化/占位符/fail-closed 零外发 | `tests/unit/infrastructure/model_gateway/test_sanitizer.py`、`tests/integration/infrastructure/test_model_egress.py` |
-| 22 模型调用日志仅白名单元数据 | `tests/unit/infrastructure/model_gateway/test_audit.py`、`tests/integration/infrastructure/test_model_egress.py::test_structlog_events_only_whitelisted_keys` |
-| 23 RAG 功能示例（有证据 Citation/无证据拒答/删除后 snapshot） | `tests/unit/services/test_citations.py`、`test_answer_rejection.py`、`tests/integration/documents/test_deletion_and_citations.py` |
-| 24 未分类异常 `50000/500` 统一信封与安全提示 | `tests/contract/test_business_error_codes.py` |
-| 25 知识库删除编排（deleting 隐藏、fencing、`delete_failed/20015` 墓碑、物理删除级联） | `tests/integration/knowledge_bases/test_deletion_orchestration.py` |
-| 前端验证 1–3 与核心流程体验修订（登录/资料/建库/上传/轮询/失败删除/会话/SSE/引用/限流与不可见资源提示、确认密码/20016 重名/认证恢复/深链接/引用跨会话关闭/窄屏账户入口，无重处理入口） | `frontend/tests/component/` 下的 Vitest 单元/组件测试（118 项）；项目不保留 `frontend/tests/e2e/` 或 Playwright 配置 |
-| 质量与交付验证 1–7（质量工具、Compose 健康/就绪、持久卷重建保留、CI/镜像门禁、Release 归档契约、锁文件、one-off 迁移后切换） | `scripts/check-backend.sh`、`check-frontend.sh`、`verify-contracts.sh`、`tests/integration/test_delivery_stack.py`（18 passed / 1 skipped + 冒烟 1 passed）、`.github/workflows/ci.yml`、`image.yml` |
+| 清单项                                                                                                                                                                                 | 覆盖测试                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 迁移/启动/就绪（扩展/持久卷/名额/阈值/失联上限）                                                                                                                                     | `tests/integration/test_startup_readiness.py`                                                                                                                                                        |
+| 2 统一信封 code/data/msg/trace_id                                                                                                                                                      | `tests/contract/test_api_envelope.py`、`test_business_error_codes.py`                                                                                                                                |
+| 3 注册/登录/刷新轮换/HS256 JWT 声明与 TTL/Refresh Token 格式与摘要落库/日志脱敏                                                                                                        | `tests/contract/test_auth_api.py`、`tests/integration/auth/test_refresh_rotation.py`、`tests/unit/core/test_security.py`、`test_logging.py`                                                          |
+| 4 跨用户 `20002/404`/`20007/404`、无全局探测                                                                                                                                           | `tests/contract/test_knowledge_bases_api.py`、`tests/integration/repositories/test_tenant_scope.py`、`test_backend_gate.py`                                                                          |
+| 5 上传 202 收敛、事务补偿、pending 不执行、300 秒接管                                                                                                                                  | `tests/contract/test_documents_api.py`、`tests/integration/documents/test_upload_and_access.py`、`test_upload_idempotency.py`                                                                        |
+| 6 整批拒绝 `20009/20003/20004` 零副作用                                                                                                                                                | `tests/contract/test_documents_api.py`                                                                                                                                                               |
+| 7 损坏 PDF 异步 `20001` 固定提示（不伪装 400）                                                                                                                                         | `tests/contract/test_document_status_api.py`、`tests/integration/documents/test_terminal_states.py`                                                                                                  |
+| 8 空文档 `20010`、压缩炸弹/路径穿越/宏/脚本/外链/超时                                                                                                                                  | `tests/unit/services/parsers/test_document_parsers.py`、`tests/integration/documents/test_parse_security.py`                                                                                         |
+| 9 幂等键重放/冲突/超时接管/24h 保留                                                                                                                                                    | `tests/integration/documents/test_upload_idempotency.py`                                                                                                                                             |
+| 10 处理并发 3 名额跨阶段持有、失联回收、attempt/retry 预算                                                                                                                             | `tests/integration/documents/test_processing_concurrency.py`、`test_task_recovery.py`                                                                                                                |
+| 11 阶段编排/fencing/`current_task_type`/`lease.task_id` 同事务、finalize 发布前不可检索                                                                                                | `tests/integration/documents/test_pipeline_state_machine.py`、`test_chunk_repository.py`                                                                                                             |
+| 12 证据门槛过滤/RRF/可信拒答不调生成                                                                                                                                                   | `tests/unit/services/test_retrieval.py`、`test_answer_rejection.py`、`tests/integration/retrieval/test_tenant_version_filters.py`                                                                    |
+| 13 检索排除删除态、DELETE 幂等/轮次/墓碑/`retry_delete`、引用快照                                                                                                                      | `tests/integration/documents/test_deletion_and_citations.py`、`test_terminal_states.py`                                                                                                              |
+| 14 SSE 三类终态、失联 streaming 条件收敛、原始帧判别                                                                                                                                   | `tests/contract/test_messages_sse_api.py`、`tests/integration/conversations/test_sse_terminal_states.py`                                                                                             |
+| 15 登出幂等/跨用户拒绝、失效/撤销/重放刷新不波及其他会话                                                                                                                               | `tests/contract/test_auth_api.py`、`tests/integration/auth/test_refresh_rotation.py`                                                                                                                 |
+| 16 分页边界、公开状态枚举、隐藏态不可读                                                                                                                                                | `tests/contract/test_conversations_api.py`、`test_document_status_api.py`                                                                                                                            |
+| 17 四类调用超时/重试仅网关执行、业务领域降级、Reranker 完整性/回退                                                                                                                     | `tests/unit/services/llm/test_resilience.py`、`test_embeddings.py`、`tests/unit/infrastructure/model_gateway/test_gateway.py`、`tests/contract/test_model_egress_contract.py`                        |
+| 18 分级限流阈值/`10005/429`+`Retry-After`/零业务副作用                                                                                                                                 | `tests/contract/test_rate_limits.py`                                                                                                                                                                 |
+| 19 跨实例共享窗口、Redis 故障语义、可信代理 XFF 解析                                                                                                                                   | `tests/integration/infrastructure/test_redis_rate_limiter.py`、`tests/unit/infrastructure/rate_limit/test_source_ip.py`、`tests/contract/test_rate_limits.py`                                        |
+| 20 四类调用全部经网关、无旁路                                                                                                                                                          | `tests/integration/infrastructure/test_model_egress.py`、`tests/architecture/test_model_gateway_boundaries.py`                                                                                       |
+| 21 脱敏最小化/占位符/fail-closed 零外发                                                                                                                                                | `tests/unit/infrastructure/model_gateway/test_sanitizer.py`、`tests/integration/infrastructure/test_model_egress.py`                                                                                 |
+| 22 模型调用日志仅白名单元数据                                                                                                                                                          | `tests/unit/infrastructure/model_gateway/test_audit.py`、`tests/integration/infrastructure/test_model_egress.py::test_structlog_events_only_whitelisted_keys`                                        |
+| 23 RAG 功能示例（有证据 Citation/无证据拒答/删除后 snapshot）                                                                                                                          | `tests/unit/services/test_citations.py`、`test_answer_rejection.py`、`tests/integration/documents/test_deletion_and_citations.py`                                                                    |
+| 24 未分类异常 `50000/500` 统一信封与安全提示                                                                                                                                           | `tests/contract/test_business_error_codes.py`                                                                                                                                                        |
+| 25 知识库删除编排（deleting 隐藏、fencing、`delete_failed/20015` 墓碑、物理删除级联）                                                                                                  | `tests/integration/knowledge_bases/test_deletion_orchestration.py`                                                                                                                                   |
+| 前端验证 1–3 与核心流程体验修订（登录/资料/建库/上传/轮询/失败删除/会话/SSE/引用/限流与不可见资源提示、确认密码/20016 重名/认证恢复/深链接/引用跨会话关闭/窄屏账户入口，无重处理入口） | `frontend/tests/component/` 下的 Vitest 单元/组件测试（118 项）；项目不保留 `frontend/tests/e2e/` 或 Playwright 配置                                                                                 |
+| 质量与交付验证 1–7（质量工具、Compose 健康/就绪、持久卷重建保留、CI/镜像门禁、Release 归档契约、锁文件、one-off 迁移后切换）                                                           | `scripts/check-backend.sh`、`check-frontend.sh`、`verify-contracts.sh`、`tests/integration/test_delivery_stack.py`（18 passed / 1 skipped + 冒烟 1 passed）、`.github/workflows/ci.yml`、`image.yml` |
 
 本阶段发现并修复（代码随本阶段交付）：
 
@@ -153,11 +153,11 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
 不构成或替代浏览器端 E2E 自动化门禁，标记为待人工执行）：
 
 1. 注册确认密码与密码规则：`tests/component/core-auth-workflow.test.tsx`（T140）
-   + `tests/contract/test_business_error_codes.py::TestCoreWorkflowValidation`
-   + 服务端 `app/core/password_policy.py`（8–256 字符且含 ASCII 字母和数字）。
+   - `tests/contract/test_business_error_codes.py::TestCoreWorkflowValidation`
+   - 服务端 `app/core/password_policy.py`（8–256 字符且含 ASCII 字母和数字）。
 2. 知识库创建跳转与 `20016/409`：`tests/integration/knowledge_bases/test_name_uniqueness.py`
    （删除态不占名、并发唯一裁决）+ `test_business_error_codes.py`（创建/改名冲突）
-   + `core-knowledge-document-workflow.test.tsx`（创建后进入资料工作区、描述清空、删除清理）。
+   - `core-knowledge-document-workflow.test.tsx`（创建后进入资料工作区、描述清空、删除清理）。
 3. 资料工作区与上传：`core-knowledge-document-workflow.test.tsx`（接受反馈、跨筛选批次
    终态更新、详情抽屉、删除后上下文清理）；跨筛选批次跟踪实现于
    `frontend/src/app/knowledge-bases/[knowledgeBaseId]/page.tsx`。
@@ -190,11 +190,11 @@ skipped）；前端 `scripts/check-frontend.sh` 全绿（118 passed，lint/forma
 
 ### 环境变量文件与部署安全契约
 
-| 场景 | `APP_ENV` | 配置来源 |
-|---|---|---|
-| 本地开发 | `development`（默认） | 读取 `backend/.env.local`（示例见 `backend/.env.local.example`），环境变量优先 |
-| 自动化测试 | `test` | 读取 `backend/.env.test`；pytest 夹具在导入应用前加载该文件并固定 `APP_ENV=test` |
-| 云端 staging / production | `staging` / `production` | 不读取仓库中任何 `.env` 文件；由 Docker 或 CI 直接注入环境变量 |
+| 场景                      | `APP_ENV`                | 配置来源                                                                         |
+| ------------------------- | ------------------------ | -------------------------------------------------------------------------------- |
+| 本地开发                  | `development`（默认）    | 读取 `backend/.env.local`（示例见 `backend/.env.local.example`），环境变量优先   |
+| 自动化测试                | `test`                   | 读取 `backend/.env.test`；pytest 夹具在导入应用前加载该文件并固定 `APP_ENV=test` |
+| 云端 staging / production | `staging` / `production` | 不读取仓库中任何 `.env` 文件；由 Docker 或 CI 直接注入环境变量                   |
 
 - 缺少关键变量时应用启动直接失败（`SystemExit`，列出全部缺失项）：`AUTH_JWT_SECRET_KEY`
   （UTF-8 编码后至少 32 字节）、`RATE_LIMIT_SUBJECT_HMAC_KEY`、
@@ -208,37 +208,37 @@ skipped）；前端 `scripts/check-frontend.sh` 全绿（118 passed，lint/forma
 
 ### 基础设施配置契约
 
-| 环境变量 | 默认值 | 说明 |
-|---|---:|---|
+| 环境变量       |                                                                 默认值 | 说明                                                                                                      |
+| -------------- | ---------------------------------------------------------------------: | --------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL` | `postgresql+psycopg://orionamesh:orionamesh@localhost:5432/orionamesh` | PostgreSQL 连接串；SQLAlchemy 引擎与 Alembic 迁移共用此单一来源，仅用于本地开发的默认值，部署必须显式覆盖 |
 
 ### 资料处理配置契约
 
-| 环境变量 | 默认值 | 说明 |
-|---|---:|---|
-| `DOCUMENT_STORAGE_ROOT` | `/data/orionamesh` | 本地持久卷根目录；数据库只保存相对对象键 |
-| `DOCUMENT_PROCESSING_MAX_PER_USER` | `3` | 单用户同时持有的资料处理名额 |
-| `DOCUMENT_PROCESSING_LEASE_SECONDS` | `300` | worker 心跳失联后的名额回收边界 |
-| `DOCUMENT_UPLOAD_PENDING_TIMEOUT_SECONDS` | `300` | 上传文件转正协调失联后的批次接管边界 |
-| `DOCUMENT_PARSE_TIMEOUT_SECONDS` | `60` | 单份资料解析超时 |
-| `DOCUMENT_PARSE_MAX_EXPANDED_BYTES` | `209715200` | DOCX 等归档格式解压后总大小上限（200MB） |
-| `DOCUMENT_UPLOAD_IDEMPOTENCY_TTL_SECONDS` | `86400` | 上传 `Idempotency-Key` 结果保留期（24 小时） |
+| 环境变量                                  |             默认值 | 说明                                         |
+| ----------------------------------------- | -----------------: | -------------------------------------------- |
+| `DOCUMENT_STORAGE_ROOT`                   | `/data/orionamesh` | 本地持久卷根目录；数据库只保存相对对象键     |
+| `DOCUMENT_PROCESSING_MAX_PER_USER`        |                `3` | 单用户同时持有的资料处理名额                 |
+| `DOCUMENT_PROCESSING_LEASE_SECONDS`       |              `300` | worker 心跳失联后的名额回收边界              |
+| `DOCUMENT_UPLOAD_PENDING_TIMEOUT_SECONDS` |              `300` | 上传文件转正协调失联后的批次接管边界         |
+| `DOCUMENT_PARSE_TIMEOUT_SECONDS`          |               `60` | 单份资料解析超时                             |
+| `DOCUMENT_PARSE_MAX_EXPANDED_BYTES`       |        `209715200` | DOCX 等归档格式解压后总大小上限（200MB）     |
+| `DOCUMENT_UPLOAD_IDEMPOTENCY_TTL_SECONDS` |            `86400` | 上传 `Idempotency-Key` 结果保留期（24 小时） |
 
 PDF、DOCX、MD、TXT 分别由 PyMuPDF、python-docx、markdown-it-py、charset-normalizer 处理；依赖版本
 由 `uv.lock` 固定。解析过程不得发起外部请求、执行宏/脚本或读取对象键之外的本地路径。
 
 ### 限流配置契约
 
-| 环境变量 | 默认值 | 说明 |
-|---|---:|---|
-| `RATE_LIMIT_SUBJECT_HMAC_KEY` | 无 | 必填；对账号、用户和租户标识生成不可逆限流键摘要 |
-| `RATE_LIMIT_TRUSTED_PROXY_CIDRS` | 空 | 可信反向代理 CIDR 逗号列表；为空时忽略所有转发头并使用直连对端 IP |
-| `RATE_LIMIT_AUTH_IP_LIMIT` / `RATE_LIMIT_AUTH_IP_WINDOW_SECONDS` | `20` / `300` | 认证来源 IP 限制 |
-| `RATE_LIMIT_AUTH_ACCOUNT_LIMIT` / `RATE_LIMIT_AUTH_ACCOUNT_WINDOW_SECONDS` | `5` / `300` | 注册/登录使用规范化邮箱 HMAC 摘要；刷新使用 refresh token HMAC 指纹 |
-| `RATE_LIMIT_UPLOAD_LIMIT` / `RATE_LIMIT_UPLOAD_WINDOW_SECONDS` | `10` / `600` | 每用户上传限制 |
-| `RATE_LIMIT_QUESTION_LIMIT` / `RATE_LIMIT_QUESTION_WINDOW_SECONDS` | `20` / `60` | 每用户问答限制 |
-| `RATE_LIMIT_DEFAULT_LIMIT` / `RATE_LIMIT_DEFAULT_WINDOW_SECONDS` | `120` / `60` | 其他已认证接口限制 |
-| `RATE_LIMIT_READ_FAIL_OPEN` | `true` | Redis 不可用时只读 GET 是否降级放行；状态变更始终 fail-closed |
+| 环境变量                                                                   |       默认值 | 说明                                                                |
+| -------------------------------------------------------------------------- | -----------: | ------------------------------------------------------------------- |
+| `RATE_LIMIT_SUBJECT_HMAC_KEY`                                              |           无 | 必填；对账号、用户和租户标识生成不可逆限流键摘要                    |
+| `RATE_LIMIT_TRUSTED_PROXY_CIDRS`                                           |           空 | 可信反向代理 CIDR 逗号列表；为空时忽略所有转发头并使用直连对端 IP   |
+| `RATE_LIMIT_AUTH_IP_LIMIT` / `RATE_LIMIT_AUTH_IP_WINDOW_SECONDS`           | `20` / `300` | 认证来源 IP 限制                                                    |
+| `RATE_LIMIT_AUTH_ACCOUNT_LIMIT` / `RATE_LIMIT_AUTH_ACCOUNT_WINDOW_SECONDS` |  `5` / `300` | 注册/登录使用规范化邮箱 HMAC 摘要；刷新使用 refresh token HMAC 指纹 |
+| `RATE_LIMIT_UPLOAD_LIMIT` / `RATE_LIMIT_UPLOAD_WINDOW_SECONDS`             | `10` / `600` | 每用户上传限制                                                      |
+| `RATE_LIMIT_QUESTION_LIMIT` / `RATE_LIMIT_QUESTION_WINDOW_SECONDS`         |  `20` / `60` | 每用户问答限制                                                      |
+| `RATE_LIMIT_DEFAULT_LIMIT` / `RATE_LIMIT_DEFAULT_WINDOW_SECONDS`           | `120` / `60` | 其他已认证接口限制                                                  |
+| `RATE_LIMIT_READ_FAIL_OPEN`                                                |       `true` | Redis 不可用时只读 GET 是否降级放行；状态变更始终 fail-closed       |
 
 `RATE_LIMIT_SUBJECT_HMAC_KEY` 不得与 JWT、供应商或数据库凭证复用；缺失时应用不得报告就绪。
 `RATE_LIMIT_TRUSTED_PROXY_CIDRS` 中任一 CIDR 非法时应用不得报告就绪；请求携带的非法转发链只
@@ -246,9 +246,9 @@ PDF、DOCX、MD、TXT 分别由 PyMuPDF、python-docx、markdown-it-py、charset
 
 ### 认证配置契约
 
-| 环境变量 | 默认值 | 说明 |
-|---|---:|---|
-| `AUTH_JWT_SECRET_KEY` | 无 | 必填；UTF-8 编码后至少 32 字节，仅用于 HS256 Access Token 签名 |
+| 环境变量              | 默认值 | 说明                                                           |
+| --------------------- | -----: | -------------------------------------------------------------- |
+| `AUTH_JWT_SECRET_KEY` |     无 | 必填；UTF-8 编码后至少 32 字节，仅用于 HS256 Access Token 签名 |
 
 算法 `HS256` 与有效期 7200 秒是代码常量，不提供环境变量覆盖。Access Token 必须包含 `sub`、
 `iat`、`exp` 和 `type=access`。验证端只允许 `HS256`，不得根据 token 头动态选择算法。
@@ -258,22 +258,22 @@ Access Token 缺失、Bearer 格式错误、签名或算法无效、必填声明
 
 ### 模型出口配置契约
 
-| 环境变量 | 默认值 | 说明 |
-|---|---:|---|
-| `MODEL_GATEWAY_PROVIDER` | `openai-compatible` | 必填；MVP 唯一承诺的适配器标识，未知值不得启动 |
-| `MODEL_GATEWAY_ENDPOINT` | 无 | 必填；必须为 HTTPS base URL；仅本地开发/自动化测试允许主机名精确为 `localhost` 或回环 IP `127.0.0.1`/`::1` 的 HTTP 地址 |
-| `MODEL_GATEWAY_API_KEY` | 无 | 必填；只在发送边界读取和注入 |
-| `MODEL_GATEWAY_SANITIZER_POLICY_VERSION` | `v1` | 脱敏规则版本；未知版本不得启动 |
-| `MODEL_GATEWAY_AUDIT_PAYLOADS` | `false` | 必须保持 `false`；启动校验拒绝开启正文日志 |
-| `MODEL_GATEWAY_EMBEDDING_MODEL` | `text-embedding-3-small` | 必填；默认 1536 维，变更维度必须迁移并重建向量 |
-| `MODEL_GATEWAY_QUERY_REWRITE_MODEL` | 无 | 必填；查询改写模型 |
-| `MODEL_GATEWAY_RERANK_MODEL` | 空 | 可选；为空时禁用 reranker 并直接使用 RRF |
-| `MODEL_GATEWAY_GENERATION_MODEL` | 无 | 必填；回答生成模型 |
-| `MODEL_GATEWAY_EMBEDDING_TIMEOUT_SECONDS` / `MODEL_GATEWAY_EMBEDDING_MAX_RETRIES` | `30` / `2` | 嵌入超时与最大重试次数 |
-| `MODEL_GATEWAY_QUERY_REWRITE_TIMEOUT_SECONDS` / `MODEL_GATEWAY_QUERY_REWRITE_MAX_RETRIES` | `10` / `1` | 改写失败后使用原问题 |
-| `MODEL_GATEWAY_RERANK_TIMEOUT_SECONDS` / `MODEL_GATEWAY_RERANK_MAX_RETRIES` | `10` / `1` | 重排失败后直接使用 RRF |
-| `MODEL_GATEWAY_GENERATION_FIRST_TOKEN_TIMEOUT_SECONDS` | `15` | 生成首 token 超时 |
-| `MODEL_GATEWAY_GENERATION_TOTAL_TIMEOUT_SECONDS` / `MODEL_GATEWAY_GENERATION_MAX_RETRIES` | `120` / `1` | 生成总时长与最大重试次数 |
+| 环境变量                                                                                  |                   默认值 | 说明                                                                                                                    |
+| ----------------------------------------------------------------------------------------- | -----------------------: | ----------------------------------------------------------------------------------------------------------------------- |
+| `MODEL_GATEWAY_PROVIDER`                                                                  |      `openai-compatible` | 必填；MVP 唯一承诺的适配器标识，未知值不得启动                                                                          |
+| `MODEL_GATEWAY_ENDPOINT`                                                                  |                       无 | 必填；必须为 HTTPS base URL；仅本地开发/自动化测试允许主机名精确为 `localhost` 或回环 IP `127.0.0.1`/`::1` 的 HTTP 地址 |
+| `MODEL_GATEWAY_API_KEY`                                                                   |                       无 | 必填；只在发送边界读取和注入                                                                                            |
+| `MODEL_GATEWAY_SANITIZER_POLICY_VERSION`                                                  |                     `v1` | 脱敏规则版本；未知版本不得启动                                                                                          |
+| `MODEL_GATEWAY_AUDIT_PAYLOADS`                                                            |                  `false` | 必须保持 `false`；启动校验拒绝开启正文日志                                                                              |
+| `MODEL_GATEWAY_EMBEDDING_MODEL`                                                           | `text-embedding-3-small` | 必填；默认 1536 维，变更维度必须迁移并重建向量                                                                          |
+| `MODEL_GATEWAY_QUERY_REWRITE_MODEL`                                                       |                       无 | 必填；查询改写模型                                                                                                      |
+| `MODEL_GATEWAY_RERANK_MODEL`                                                              |                       空 | 可选；为空时禁用 reranker 并直接使用 RRF                                                                                |
+| `MODEL_GATEWAY_GENERATION_MODEL`                                                          |                       无 | 必填；回答生成模型                                                                                                      |
+| `MODEL_GATEWAY_EMBEDDING_TIMEOUT_SECONDS` / `MODEL_GATEWAY_EMBEDDING_MAX_RETRIES`         |               `30` / `2` | 嵌入超时与最大重试次数                                                                                                  |
+| `MODEL_GATEWAY_QUERY_REWRITE_TIMEOUT_SECONDS` / `MODEL_GATEWAY_QUERY_REWRITE_MAX_RETRIES` |               `10` / `1` | 改写失败后使用原问题                                                                                                    |
+| `MODEL_GATEWAY_RERANK_TIMEOUT_SECONDS` / `MODEL_GATEWAY_RERANK_MAX_RETRIES`               |               `10` / `1` | 重排失败后直接使用 RRF                                                                                                  |
+| `MODEL_GATEWAY_GENERATION_FIRST_TOKEN_TIMEOUT_SECONDS`                                    |                     `15` | 生成首 token 超时                                                                                                       |
+| `MODEL_GATEWAY_GENERATION_TOTAL_TIMEOUT_SECONDS` / `MODEL_GATEWAY_GENERATION_MAX_RETRIES` |              `120` / `1` | 生成总时长与最大重试次数                                                                                                |
 
 所有适配器共用 `MODEL_GATEWAY_API_KEY`，不得创建独立供应商密钥变量。除上述本机回环例外外，HTTP
 endpoint 必须拒绝就绪且无需环境模式变量。endpoint 缺失或非法、除可选 Reranker 外的必填模型缺失、
@@ -286,11 +286,11 @@ Reranker 启用时，chat 端点响应必须是
 
 ### 检索与消息恢复配置契约
 
-| 环境变量 | 默认值 | 说明 |
-|---|---:|---|
-| `RETRIEVAL_VECTOR_MIN_SIMILARITY` | `0.65` | 余弦相似度门槛；低于该值的向量候选不得进入 RRF |
-| `RETRIEVAL_TRGM_MIN_SIMILARITY` | `0.30` | pg_trgm 相似度门槛；低于该值的关键词候选不得进入 RRF |
-| `MESSAGE_STREAMING_STALE_SECONDS` | `360` | API 进程失联后的 assistant `streaming` 最大存续时间；维护扫描器超过该时间条件更新为 `failed/error` |
+| 环境变量                          | 默认值 | 说明                                                                                               |
+| --------------------------------- | -----: | -------------------------------------------------------------------------------------------------- |
+| `RETRIEVAL_VECTOR_MIN_SIMILARITY` | `0.65` | 余弦相似度门槛；低于该值的向量候选不得进入 RRF                                                     |
+| `RETRIEVAL_TRGM_MIN_SIMILARITY`   | `0.30` | pg_trgm 相似度门槛；低于该值的关键词候选不得进入 RRF                                               |
+| `MESSAGE_STREAMING_STALE_SECONDS` |  `360` | API 进程失联后的 assistant `streaming` 最大存续时间；维护扫描器超过该时间条件更新为 `failed/error` |
 
 两个检索阈值必须在闭区间 `[0, 1]`。`MESSAGE_STREAMING_STALE_SECONDS` 必须不小于全部 Query Rewrite、
 Reranker 和 Generation 最大尝试预算之和再加 60 秒；默认值 360 秒满足默认模型配置。配置不合法时应用不得报告就绪。
@@ -392,16 +392,20 @@ Reranker 和 Generation 最大尝试预算之和再加 60 秒；默认值 360 �
 
 ### 创建正式发布包
 
-在通过质量门禁的提交上创建并推送版本标签，例如：
+仅在已合并且通过质量门禁的 `main` 提交上创建并推送**带注释的**版本标签。先同步远端 `main`，
+再从该分支创建 tag；不要在功能分支创建或推送正式 tag：
 
 ```bash
-git tag v0.1.0
+git fetch origin main --tags
+git switch main
+git pull --ff-only origin main
+git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin v0.1.0
 ```
 
-等待 `Images` 工作流成功。其 GitHub Release 会提供 `orionamesh-release-v0.1.0.tar.gz` 及同名
-`.sha256` 文件；该包仅包含应用镜像，PostgreSQL、Redis 和 Nginx 在服务器首次启动时由 Compose 获取并
-保存在本地。
+`Images` 会先验证 tag 指向的提交属于 `origin/main` 的历史；不满足时，镜像构建与 Release 都不会开始。
+验证通过后等待工作流成功。其 GitHub Release 会提供 `orionamesh-release-v0.1.0.tar.gz` 及同名 `.sha256`
+文件；该包仅包含应用镜像，PostgreSQL、Redis 和 Nginx 在服务器首次启动时由 Compose 获取并保存在本地。
 
 ### 首次准备服务器
 

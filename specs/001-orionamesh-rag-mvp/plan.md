@@ -29,7 +29,7 @@ Redis 和 Celery 实现认证、租户隔离、资料异步处理、双路召回
 
 ## Constitution Check
 
-*GATE：Phase 0 前及 Phase 1 后均通过。*
+_GATE：Phase 0 前及 Phase 1 后均通过。_
 
 - [x] 所有资源由服务端根据当前认证用户执行归属授权，客户端不能指定可信租户边界。
 - [x] 派生表冗余保存 `user_id`；`chunks` 只能由统一 `ChunkRepository` 读取，检索强制过滤租户、知识库、完成状态、当前版本及最低证据门槛。
@@ -179,6 +179,9 @@ SC-001～SC-007 不映射为自动化量化门禁，不建立固定评测集、�
 
 - PR 与正式 `v*` tag 都构建 `linux/amd64` 前端/后端镜像并执行 Trivy HIGH/CRITICAL 门禁；
   main 是受保护分支（仅 PR 合并），PR 门禁已扫描同一代码，合并后不重复构建镜像。
+  正式 tag 必须解析为 `origin/main` 可达历史中的提交；工作流在构建前执行该校验，拒绝从未合并
+  功能分支、分叉提交或其他分支创建的 tag。版本 tag 由维护者在 `main` 已通过 CI 后手动创建，
+  作为制作不可变部署镜像的显式发布授权。
   仅正式 tag 导出两个 Docker image tar，与不可变 SHA 镜像引用、Compose、Nginx、部署脚本和 SHA-256
   校验一起发布为 GitHub Release。
 - 腾讯云服务器只校验、解压和导入发布包中的应用镜像；不得访问 GHCR、在服务器构建应用镜像或以
