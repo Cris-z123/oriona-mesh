@@ -560,9 +560,21 @@ MVP 仍需继续完成 T060–T105 后再进入前端。
 4. 完成阶段 12，验证四条核心用户路径后才进入阶段 13。
 5. 完成阶段 13 的体验一致性验证后，才进入下一阶段开发。
 
+### 阶段 17：Evidence Console UI/UX（已确认设计）
+
+**目标**：在不改动后端、REST/SSE、数据模型、任务队列、错误码、服务端授权或模型出口的条件下，落实已确认的“科技感、专业且安静”工作台，并完整覆盖 US1、US2 与 US4 的前端体验。
+
+- [x] T175 对齐 `spec.md`、`plan.md`、`tasks.md`、`ui-design.md` 与 `quickstart.md`：冻结 Evidence Console、图标化操作、704px 阅读列、证据轨道、已有会话只读范围与阶段 17 非服务端边界。
+- [x] T176 [P] [US4] 先在 `frontend/tests/component/ui-foundation.test.tsx` 与 `frontend/tests/component/core-auth-workflow.test.tsx` 添加图标可访问名称、账户菜单、登录/注册/退出成功反馈和字段错误回归测试，再更新 `frontend/src/app/(auth)/login/page.tsx`、`frontend/src/app/(auth)/register/page.tsx`、`frontend/src/components/app-shell/AccountMenu.tsx`、`frontend/src/components/app-shell/AppShell.tsx` 与共享基础组件。
+- [x] T177 [P] [US1] 先在 `frontend/tests/component/core-knowledge-document-workflow.test.tsx` 添加知识库创建 Dialog、按需上传 Sheet、资料中文阶段/时间元数据、空态上传入口与详情/删除次级操作菜单回归测试，再更新 `frontend/src/features/knowledge-bases/KnowledgeBaseList.tsx`、`frontend/src/app/knowledge-bases/[knowledgeBaseId]/page.tsx`、`frontend/src/features/documents/DocumentList.tsx` 及相关领域组件。
+- [x] T178 [P] [US2] 先在 `frontend/tests/component/core-conversation-workflow.test.tsx` 与 `frontend/tests/component/ui-foundation.test.tsx` 添加图标化新对话入口、已有会话只读知识库范围、最近对话标签、704px 单列、左侧靛蓝证据轨道、rank 标记、引用条目和流式提示回归测试，再更新 `frontend/src/features/conversations/ConversationSidebar.tsx`、`frontend/src/features/conversations/ConversationsWorkspace.tsx`、`frontend/src/features/conversations/MessageThread.tsx`、`frontend/src/features/citations/CitationCard.tsx` 与相关 UI 原语。
+- [x] T179 [US4] 运行受影响前端格式、lint、typecheck 和 Vitest；在 492px 与 1280px 实际登录态页面手工检查认证、知识库、资料、对话、引用抽屉、菜单、键盘焦点及浅/深主题，并将命令、结果和未通过项记录在 `specs/001-orionamesh-rag-mvp/quickstart.md`。
+- [x] T180 [US4] 移除 `frontend/src/app/knowledge-bases/page.tsx`、`frontend/src/features/knowledge-bases/KnowledgeBaseList.tsx`、`frontend/src/features/conversations/ConversationsWorkspace.tsx` 的重复页头或重复入口，修正 `frontend/src/components/app-shell/AppShell.tsx` 与 `frontend/src/components/app-shell/WorkspaceNav.tsx` 的阶段 16 后过期注释，并更新受影响回归测试。
+- [x] T181 [US2] 先在 `frontend/tests/component/core-conversation-workflow.test.tsx` 添加无外框连续历史列表、当前会话矿物青左侧标记与条目操作可访问性的回归测试，再更新 `frontend/src/features/conversations/ConversationSidebar.tsx`；不得改变全局分页、URL 恢复、重命名或删除语义。
+
 ## 备注
 
 - `[P]` 仅表示不同文件且不依赖同一未完成输出；不改变 T091/T105 的后端先行门禁。
 - 任务 T001–T091 为后端或后端验证任务；T092–T105 为工程化、部署与 CI/CD 任务；
-  T106–T121、T134–T138、T140–T152、T153–T161 及 T170–T174 为前端或前后端联调任务。
+  T106–T121、T134–T138、T140–T152、T153–T161、T170–T174 及 T175–T181 为前端或前后端联调任务。
 - 不实现资料重处理、资料替换、纯聊天和自助密码重置；这些需求不得在任务执行中重新引入。

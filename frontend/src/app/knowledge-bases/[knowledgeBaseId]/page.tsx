@@ -1,10 +1,13 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Upload } from "lucide-react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 
 import { AppShell } from "@/components/app-shell/AppShell";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { DocumentList } from "@/features/documents/DocumentList";
 import { UploadPanel } from "@/features/documents/UploadPanel";
@@ -29,6 +32,7 @@ function KnowledgeBaseDocumentsWorkspace() {
   const queryClient = useQueryClient();
   const pendingIds = useRef<Set<string>>(new Set());
   const [trackingUploads, setTrackingUploads] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   // 标题展示所属知识库（T158）。
   const knowledgeBase = useQuery({
@@ -74,14 +78,45 @@ function KnowledgeBaseDocumentsWorkspace() {
     <RequireAuth>
       <AppShell>
         <div className="space-y-6">
-          <header>
-            <h1 className="font-display text-2xl font-semibold">
-              资料{knowledgeBase.data?.name ? ` — ${knowledgeBase.data.name}` : ""}
-            </h1>
-            <p className="text-sm text-muted-foreground">上传并跟踪资料处理状态</p>
+          <header className="flex items-start justify-between gap-4 border-b pb-5">
+            <div>
+              <p className="text-xs font-medium tracking-[0.14em] text-primary">KNOWLEDGE BASE</p>
+              <h1 className="mt-2 font-display text-2xl font-semibold">
+                {knowledgeBase.data?.name ?? "资料工作区"}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">上传并跟踪每份资料的处理状态。</p>
+            </div>
+            <Button
+              variant="outline"
+              className="h-9 w-9 shrink-0 p-0"
+              aria-label="上传资料"
+              title="上传资料"
+              onClick={() => setUploadOpen(true)}
+            >
+              <Upload className="h-4 w-4" aria-hidden />
+            </Button>
           </header>
-          <UploadPanel knowledgeBaseId={knowledgeBaseId} onUploaded={onUploaded} />
-          <DocumentList knowledgeBaseId={knowledgeBaseId} initialDocumentId={documentId} />
+          <DocumentList
+            knowledgeBaseId={knowledgeBaseId}
+            initialDocumentId={documentId}
+            onUpload={() => setUploadOpen(true)}
+          />
+
+          <Sheet open={uploadOpen} onOpenChange={setUploadOpen}>
+            <SheetContent
+              side="right"
+              aria-label="上传资料"
+              className="w-full space-y-5 sm:max-w-md"
+            >
+              <div className="space-y-1.5 pr-8">
+                <SheetTitle className="font-display text-xl">上传资料</SheetTitle>
+                <SheetDescription>
+                  支持 PDF、DOCX、MD 与 TXT；系统会在接收后开始处理。
+                </SheetDescription>
+              </div>
+              <UploadPanel knowledgeBaseId={knowledgeBaseId} onUploaded={onUploaded} />
+            </SheetContent>
+          </Sheet>
         </div>
       </AppShell>
     </RequireAuth>

@@ -3,10 +3,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
+import { useState } from "react";
 import { z } from "zod";
 
 import { asApiError, login } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -18,13 +20,13 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 
-export function LoginForm() {
+export function LoginForm({ registered = false }: { registered?: boolean }) {
   const router = useRouter();
+  const [apiError, setApiError] = useState<ReturnType<typeof asApiError> | null>(null);
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-    setError,
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
@@ -32,15 +34,24 @@ export function LoginForm() {
 
   const onSubmit = async (values: LoginValues) => {
     try {
+      setApiError(null);
       await login(values);
       router.push("/knowledge-bases");
     } catch (err) {
-      setError("root", { message: asApiError(err).msg });
+      setApiError(asApiError(err));
     }
   };
 
   return (
     <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {registered ? (
+        <p
+          role="status"
+          className="rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-sm text-foreground"
+        >
+          注册成功，请使用新账号登录。
+        </p>
+      ) : null}
       <div className="space-y-1.5">
         <Label htmlFor="login-email">邮箱</Label>
         <Input
@@ -73,11 +84,7 @@ export function LoginForm() {
           </p>
         ) : null}
       </div>
-      {errors.root ? (
-        <p role="alert" className="text-sm text-destructive">
-          {errors.root.message}
-        </p>
-      ) : null}
+      {apiError ? <ErrorState error={apiError} /> : null}
       <Button type="submit" disabled={isSubmitting} className="w-full">
         登录
       </Button>

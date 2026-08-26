@@ -9,16 +9,21 @@ export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 
 export function DropdownMenuContent({
   className,
+  portalled = true,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
-  return (
-    <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.Content
-        align="end"
-        className={cn("z-50 min-w-32 rounded-md border bg-surface p-1 shadow-lg", className)}
-        {...props}
-      />
-    </DropdownMenuPrimitive.Portal>
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & { portalled?: boolean }) {
+  const content = (
+    <DropdownMenuPrimitive.Content
+      align="end"
+      className={cn("z-50 min-w-32 rounded-md border bg-surface p-1 shadow-lg", className)}
+      {...props}
+    />
+  );
+
+  return portalled ? (
+    <DropdownMenuPrimitive.Portal>{content}</DropdownMenuPrimitive.Portal>
+  ) : (
+    content
   );
 }
 

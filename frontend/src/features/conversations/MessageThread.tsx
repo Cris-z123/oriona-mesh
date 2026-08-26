@@ -169,7 +169,10 @@ export function MessageThread({
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-4" aria-label="消息线程">
+    <section
+      className="mx-auto flex min-h-0 w-full max-w-[704px] flex-1 flex-col gap-4"
+      aria-label="消息线程"
+    >
       {messages.isLoading ? (
         <div aria-label="正在加载消息" className="text-sm text-muted-foreground">
           正在加载消息…
@@ -198,13 +201,13 @@ export function MessageThread({
                   {message.content}
                 </div>
               ) : (
-                <div className="max-w-[85%] text-sm">
+                <div className="max-w-full text-sm leading-7">
                   <div className="whitespace-pre-wrap">
                     {message.content}
                     {isStreaming ? (
                       <span
                         aria-hidden
-                        className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-primary align-text-bottom"
+                        className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-clue align-text-bottom"
                       />
                     ) : null}
                   </div>

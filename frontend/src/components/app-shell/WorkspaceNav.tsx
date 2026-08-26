@@ -63,8 +63,8 @@ export function NavLinks({
 
 /**
  * 左侧固定全局侧栏（T137/T148/T157，ui-design §3.1）：品牌、折叠开关、
- * 知识库管理与对话导航、底部账户菜单。会话历史仅在与对话路由且 URL 知识库
- * 明确时出现（ConditionalConversationSidebar），其他页面绝不显示。
+ * 知识库管理与对话导航、底部账户菜单。会话历史在任意对话路由出现，按当前用户
+ * 全局范围加载（ConditionalConversationSidebar），其他页面绝不显示。
  * 折叠状态保存在 UI store，仅维护布局与本地 UI 状态。
  */
 export function WorkspaceNav() {

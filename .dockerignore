@@ -8,6 +8,7 @@ scripts
 deploy
 .github
 .claude
+.codex
 .agents
 .specify
 *.md
