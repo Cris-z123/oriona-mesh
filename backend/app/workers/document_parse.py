@@ -32,7 +32,7 @@ from app.workers.base import (
     TaskNotRunnableError,
     begin_attempt,
     converge_cancelled,
-    load_task_boundaries,
+    execute_document_task,
 )
 
 logger = structlog.get_logger()
@@ -195,22 +195,5 @@ def register_tasks(celery_app) -> None:
     """注册 Celery 任务（提交后投递适配层）。"""
 
     @celery_app.task(name="orionamesh.document_parse", bind=True)
-    def parse_task(self, task_id: str) -> None:
-        from app.infrastructure.database.session import SessionLocal
-
-        session = SessionLocal()
-        try:
-            bounds = load_task_boundaries(session, uuid.UUID(task_id))
-            if bounds is None:
-                return
-            user_id, knowledge_base_id, document_id, document_version = bounds
-            process_parse(
-                session,
-                task_id=uuid.UUID(task_id),
-                user_id=user_id,
-                knowledge_base_id=knowledge_base_id,
-                document_id=document_id,
-                document_version=document_version,
-            )
-        finally:
-            session.close()
+    def parse_task(self, task_id: str | uuid.UUID) -> None:
+        execute_document_task(task_id, process_parse)

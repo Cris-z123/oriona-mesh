@@ -113,6 +113,16 @@ class TestComposeDeploymentContract:
             assert condition == "service_completed_successfully"
             # 迁移失败（migrate 非零退出）时 API/worker 不启动，旧容器保持运行。
 
+    def test_worker_health_checks_celery_control_channel(self) -> None:
+        """worker 存活不等于能消费任务，健康检查必须等待 control ping。"""
+        worker = _load_compose()["services"]["worker"]
+        healthcheck = worker.get("healthcheck")
+        assert healthcheck is not None
+        command = " ".join(healthcheck["test"])
+        assert "celery" in command
+        assert "inspect ping" in command
+        assert "pong" in command
+
     def test_shared_named_volume_mounted_on_api_and_worker(self) -> None:
         compose = _load_compose()
         for service in ("api", "worker"):

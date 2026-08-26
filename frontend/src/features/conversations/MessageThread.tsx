@@ -102,7 +102,11 @@ export function MessageThread({
   useEffect(() => {
     if (!initialDraft || draftHandled.current) return;
     draftHandled.current = true;
-    void send(initialDraft);
+    void send(initialDraft).then((accepted) => {
+      // 首条内容同样走"未接受则恢复输入"语义：创建后立即被拒（如资料未处理完成）时
+      // 把问题放回输入框，避免提问丢失。
+      if (!accepted) setContent(initialDraft);
+    });
   }, [initialDraft, send]);
 
   const submit = async () => {
@@ -111,10 +115,11 @@ export function MessageThread({
     setContent("");
     // 乐观呈现用户消息：终态后 refetch 的持久化消息会替换它。
     setPendingUser(question);
-    try {
-      await send(question);
-    } catch {
+    const accepted = await send(question);
+    if (!accepted) {
       setPendingUser((current) => (current === question ? null : current));
+      // 请求尚未创建服务端消息时，保留用户原输入以便修正条件后重试。
+      setContent((current) => current || question);
     }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
