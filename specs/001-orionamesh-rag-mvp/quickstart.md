@@ -45,6 +45,9 @@
 - 升级顺序：校验归档 → 导入镜像 → 确保 PostgreSQL/Redis 健康 → 串行 one-off migrate 成功 →
   以 `--no-build --pull never` 更新 API/worker/前端并等待健康检查；Nginx 与 PostgreSQL/Redis
   同属基础设施，本机缺失时允许拉取（`--pull missing`）。迁移失败时脚本退出，不更新应用服务。
+- worker 的健康不只表示容器进程存活：Compose 通过 Celery control ping 验证其能经 Redis 响应控制
+  消息。部署完成后可运行 `sudo docker exec orionamesh-worker-1 celery -A app.workers.celery_app inspect ping --timeout=5`
+  复核，输出必须包含 `pong`；该命令直接在运行容器内执行，不依赖临时 Release 目录中的 `release.env`。
 - 回滚使用上一 GitHub Release 的镜像归档；镜像回滚不会自动降级数据库。破坏性迁移发布前必须先
   人工备份，失败时停止发布并按备份恢复。
 - 环境变量以本文档「环境变量文件与部署安全契约」及下方配置契约为唯一真相源；示例模板：
@@ -75,6 +78,36 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
   `/opt/orionamesh/deploy/nginx/nginx.conf`（绝对路径注入生效）；仅 80 监听、`compose ps` 全就绪、
   PG 扩展、Redis 认证、`/` 反向代理与 Compose 内 API `/ready` 均验证通过
 - 升级与回滚（第二 tag → 首个 tag）经确认豁免验收，不执行；T133b 保持未勾选。
+
+### 阶段 15 异步可靠性验证记录（T163–T169，2026-08-23）
+
+- Celery 传输回归、解析 worker 入口与交付静态契约：`28 passed / 2 skipped`。两个 skip 均为本机没有
+  Docker CLI 时的 Compose 配置检查和显式门控的完整 Compose 冒烟，不影响不依赖 Docker 的回归断言。
+- 前端全量 Vitest：`147 passed / 12 files`；变更文件 ESLint、Prettier 与 TypeScript 检查均通过。
+- 后端全量 pytest（本次独立复核）：`764 passed / 2 skipped`（含新增 28 项回归与交付契约）；Ruff
+  format/check 均通过。
+- 代码评审修复：自动发送首条内容在服务端创建消息前被拒（如资料未处理完成）时，提问恢复到输入框
+  而非丢失，并新增对应组件回归用例（`MessageThread` 自动发送路径，T164 范围）。
+- 后端变更文件 Ruff format/check 均通过。当前工作站遗留的 `backend/.venv` 解释器指向已不存在的 uv
+  Python，因此无法在本机运行 Pyright；该问题只影响静态检查启动，不影响上述 pytest 实际执行。提交前
+  应在 CI 或已执行 `uv sync --locked` 的环境补跑 `uv run pyright`，并以 `RUN_DELIVERY_SMOKE=1` 执行完整
+  Compose 冒烟，确认 worker health 进入 healthy 后再制作 Release。
+
+### 阶段 16 全局会话历史验证记录（T170–T174，2026-08-25/26）
+
+- **排序语义决策**（2026-08-25 与产品确认）：`GET /conversations` 全局与筛选结果均按最近活动倒序，
+  映射为 `updated_at DESC, created_at DESC`（模型带 `onupdate`，创建、重命名、收消息都会刷新该列）；
+  `knowledge_base_name` 经同一已授权关联（`knowledge_bases.user_id == user_id`）投影，不是
+  `conversations` 持久化列（集成测试以 `inspect` 断言无该列）。
+- 后端全量 pytest：`770 passed / 2 skipped`（阶段 15 基线 764 + 新增 6：全局分页/排序/名称投影
+  3 项契约 + 仓储排序并列键/授权连接/无冗余列 3 项集成）。
+- 会话契约与集成子集：`36 passed`；OpenAPI/契约校验 `scripts/verify-contracts.sh`：
+  `172 passed / 1 skipped`。
+- 前端全量 Vitest：`153 passed / 12 files`（新增 6 项全局历史组件测试，改写 3 项旧“按知识库范围
+  加载”断言为全局语义）；tsc、ESLint、Prettier 全绿。
+- 行为变更：侧栏始终展示当前用户全局历史（未选择知识库时不再出现“请先选择知识库”空态）；会话行
+  次级标签显示所属知识库名称；点击历史会话原子恢复会话与知识库 URL；删除当前会话回到无知识库的
+  全局列表；知识库切换不再重置侧栏页码（只影响新建范围与正文上下文）。
 
 ## 阶段 11 收尾验证记录（T123/T125，2026-08-19）
 
@@ -136,11 +169,11 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
 4. 真实启动冒烟暴露本机开发库未迁移（`/ready` 缺扩展）；本地开发按 README 的
    `uv run alembic upgrade head` 初始化后 `/ready` 通过。
 
-### 阶段 13 体验一致性验证记录（T161，2026-08-22）
+### 阶段 13 体验一致性验证记录（T161，2026-08-22；会话历史范围已由阶段 16 取代）
 
 自动化结果（全部确定性验证均绿；人工浏览器冒烟标记为待执行）：
 
-1. **对话工作区组合（T153/T157）**：`core-conversation-workflow.test.tsx` 覆盖——无 URL 知识库时不回退第一个有效知识库、切换知识库确认后重置会话页码/选中/引用、知识库选择器打开时按需加载全部有效知识库（page_size=100）、会话删除仅发送一次请求；会话历史位于全局侧栏（`WorkspaceNav`/抽屉），仅在与对话路由且 URL 明确知识库时呈现（`ConditionalConversationSidebar`，以 knowledgeBase 为 key 重置页码），其他页面绝不显示，绝不移入中央主内容区。
+1. **对话工作区组合（T153/T157，历史验证）**：`core-conversation-workflow.test.tsx` 当时覆盖——无 URL 知识库时不回退第一个有效知识库、切换知识库确认后重置会话页码/选中/引用、知识库选择器打开时按需加载全部有效知识库（page_size=100）、会话删除仅发送一次请求；当时会话历史仅在对话路由且 URL 明确知识库时呈现。该显示范围已由阶段 16 的 T170–T174 取代：后续验证必须使用带知识库名称的全局会话历史、跨知识库点击恢复与无预选知识库浏览路径；历史绝不移入中央主内容区。
 2. **资料工作区（T154/T158）**：`core-knowledge-document-workflow.test.tsx` 覆盖——上传接受后立即重取当前页显示非终态资料行、上传中禁用再次选择并显示明确提示、读取失败显示可重试错误不降级为空列表、资料页标题显示所属知识库名称。
 3. **消息即时体验（T155/T159）**：`core-conversation-workflow.test.tsx` 覆盖——标准 AI 单列消息流（用户右侧紧凑气泡、助手左侧无边框正文、流式靛蓝光标附着助手正文末尾）、会话详情加载骨架、发送后立即显示乐观用户消息（终态后持久化接管）、消息按原有换行渲染、历史加载失败重试、上翻阅读历史时显示“回到最新内容”入口、重命名成功短暂成功反馈。
 4. **成功反馈与表单（T156/T160）**：`core-auth-workflow.test.tsx` 覆盖——密码规则预先提示、密码在确认密码之前、无效输入阻断请求；`components/ui/toast.tsx` 统一短暂成功反馈应用于知识库创建/保存、会话重命名/删除。

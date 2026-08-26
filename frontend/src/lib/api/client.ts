@@ -329,12 +329,18 @@ export async function deleteKnowledgeBase(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function listConversations(
-  knowledgeBaseId: string,
+  knowledgeBaseId: string | undefined,
   page = 1,
   pageSize = 20
 ): Promise<Page<Conversation>> {
+  // 省略 knowledge_base_id 时返回当前用户全局历史（T173 / FR-013）；
+  // 空值必须省略而非发送空字符串，避免服务端 UUID 校验失败。
   const envelope = await request<Page<Conversation>>(
-    `/conversations?${qs({ knowledge_base_id: knowledgeBaseId, page, page_size: pageSize })}`
+    `/conversations?${qs({
+      knowledge_base_id: knowledgeBaseId || undefined,
+      page,
+      page_size: pageSize,
+    })}`
   );
   return envelope.data;
 }

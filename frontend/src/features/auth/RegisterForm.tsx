@@ -95,7 +95,7 @@ export function RegisterForm() {
           {...registerField("password")}
         />
         <p id="register-password-hint" className="text-xs text-muted-foreground">
-          至少 8 个字符，同时包含字母和数字（规则预先提示，阶段 13）。
+          至少 8 个字符，同时包含字母和数字。
         </p>
         {errors.password ? (
           <p id="register-password-error" role="alert" className="text-sm text-destructive">

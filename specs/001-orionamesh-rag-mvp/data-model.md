@@ -146,7 +146,7 @@
 
 | 字段 | 规则 |
 |---|---|
-| conversation.user_id / knowledge_base_id | 均必填；知识库必须属于当前用户，MVP 不提供纯聊天对话 |
+| conversation.user_id / knowledge_base_id | 均必填；知识库必须属于当前用户，MVP 不提供纯聊天对话；会话列表响应可通过当前用户范围内的知识库关联投影 `knowledge_base_name`，该显示字段不是 `conversations` 的持久化冗余列 |
 | conversation.title / last_message_at | 标题和最后消息时间均可为空；无消息的新对话允许尚未生成标题 |
 | message.user_id / conversation_id | 均必填；`user_id` 为防御性租户边界，必须与对话所有者一致 |
 | message.role | `user` 或 `assistant` |

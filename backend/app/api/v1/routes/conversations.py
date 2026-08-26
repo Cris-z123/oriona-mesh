@@ -33,9 +33,11 @@ def create_conversation(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    conv = ConversationService(db).create(current_user.id, payload.knowledge_base_id, payload.title)
+    conv, knowledge_base_name = ConversationService(db).create(
+        current_user.id, payload.knowledge_base_id, payload.title
+    )
     db.commit()
-    return success_response(conversation_dto(conv)).model_dump(mode="json")
+    return success_response(conversation_dto(conv, knowledge_base_name)).model_dump(mode="json")
 
 
 @router.get("/conversations")
@@ -54,7 +56,7 @@ def list_conversations(
     )
     return success_response(
         {
-            "items": [conversation_dto(conv) for conv in items],
+            "items": [conversation_dto(conv, name) for conv, name in items],
             "page": page,
             "page_size": page_size,
             "total": total,
@@ -68,8 +70,8 @@ def get_conversation(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    conv = ConversationService(db).get(current_user.id, conversation_id)
-    return success_response(conversation_dto(conv)).model_dump(mode="json")
+    conv, knowledge_base_name = ConversationService(db).get(current_user.id, conversation_id)
+    return success_response(conversation_dto(conv, knowledge_base_name)).model_dump(mode="json")
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -79,9 +81,11 @@ def rename_conversation(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    conv = ConversationService(db).rename(current_user.id, conversation_id, payload.title)
+    conv, knowledge_base_name = ConversationService(db).rename(
+        current_user.id, conversation_id, payload.title
+    )
     db.commit()
-    return success_response(conversation_dto(conv)).model_dump(mode="json")
+    return success_response(conversation_dto(conv, knowledge_base_name)).model_dump(mode="json")
 
 
 @router.delete("/conversations/{conversation_id}")

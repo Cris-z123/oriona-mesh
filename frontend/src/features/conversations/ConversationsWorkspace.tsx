@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type KeyboardEvent } from "react";
@@ -51,6 +51,7 @@ function conversationErrorValue(error: unknown): ErrorStateValue {
  */
 export function ConversationsWorkspace() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("conversation");
   const knowledgeBaseId = searchParams.get("knowledgeBase") ?? "";
@@ -105,6 +106,8 @@ export function ConversationsWorkspace() {
     setStartError(null);
     try {
       const created = await create.mutateAsync(knowledgeBaseId);
+      // 左侧会话历史共享同一 QueryClient；创建成功后立即失效，避免等待 30 秒 staleTime 或刷新页面。
+      await queryClient.invalidateQueries({ queryKey: queryKeys.conversationsAll() });
       setDraft({ conversationId: created.id, content });
       router.replace(`/conversations?knowledgeBase=${knowledgeBaseId}&conversation=${created.id}`);
     } catch (err) {

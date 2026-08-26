@@ -33,8 +33,8 @@ from app.services.file_storage import FileStorage, default_file_storage
 from app.workers.base import (
     TaskNotRunnableError,
     begin_attempt,
+    execute_document_task,
     finish_attempt,
-    load_task_boundaries,
 )
 
 WORKER_NAME = "orionamesh-delete-cleanup"
@@ -174,22 +174,5 @@ def register_tasks(celery_app) -> None:
     """注册 Celery 任务（提交后投递适配层）。"""
 
     @celery_app.task(name="orionamesh.document_delete_cleanup", bind=True)
-    def delete_cleanup_task(self, task_id: str) -> None:
-        from app.infrastructure.database.session import SessionLocal
-
-        session = SessionLocal()
-        try:
-            bounds = load_task_boundaries(session, uuid.UUID(task_id))
-            if bounds is None:
-                return
-            user_id, knowledge_base_id, document_id, document_version = bounds
-            process_delete_cleanup(
-                session,
-                task_id=uuid.UUID(task_id),
-                user_id=user_id,
-                knowledge_base_id=knowledge_base_id,
-                document_id=document_id,
-                document_version=document_version,
-            )
-        finally:
-            session.close()
+    def delete_cleanup_task(self, task_id: str | uuid.UUID) -> None:
+        execute_document_task(task_id, process_delete_cleanup)

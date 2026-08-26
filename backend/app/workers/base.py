@@ -8,6 +8,7 @@
 """
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import structlog
@@ -25,18 +26,53 @@ class TaskNotRunnableError(Exception):
     """任务不可执行（pending 未就绪、重复投递或已达重试预算）；worker 静默跳过。"""
 
 
-def dispatch_task(name: str, args: tuple) -> None:
+def dispatch_task(name: str, args: tuple[object, ...]) -> None:
     """提交后投递 Celery 任务；投递失败只记日志，DB 真相由扫描器重投。
 
-    Celery 任务只接收 ``task_id``（租户边界在任务内部从任务行加载），
-    因此调用方只需传 ``(task_id,)``。
+    Celery 任务只接收字符串 ``task_id``（租户边界在任务内部从任务行加载）。领域层仍使用
+    UUID，但传输边界必须把它转换为标量，避免依赖 Celery serializer 对 UUID 的实现细节。
     """
     from app.workers.celery_app import celery_app
 
     try:
-        celery_app.send_task(name, args=args)
+        celery_app.send_task(
+            name,
+            args=tuple(str(value) if isinstance(value, uuid.UUID) else value for value in args),
+        )
     except Exception as exc:  # noqa: BLE001 - 投递失败由恢复扫描器重投
         logger.warning("task_dispatch_failed", task_name=name, error_type=type(exc).__name__)
+
+
+def normalize_task_id(task_id: str | uuid.UUID) -> uuid.UUID:
+    """将 Celery 载荷和历史直接调用统一为领域 UUID。"""
+    return task_id if isinstance(task_id, uuid.UUID) else uuid.UUID(task_id)
+
+
+def execute_document_task(task_id: str | uuid.UUID, process: Callable[..., None]) -> None:
+    """加载资料任务边界并调用一个阶段处理器。
+
+    所有资料 worker 共用此入口，确保跨进程的 UUID 只在此规范化一次。执行异常仍交由
+    Celery 记录；阶段处理器内部负责 attempt、重试和业务状态的收敛。
+    """
+    from app.infrastructure.database.session import SessionLocal
+
+    normalized_task_id = normalize_task_id(task_id)
+    session = SessionLocal()
+    try:
+        bounds = load_task_boundaries(session, normalized_task_id)
+        if bounds is None:
+            return
+        user_id, knowledge_base_id, document_id, document_version = bounds
+        process(
+            session,
+            task_id=normalized_task_id,
+            user_id=user_id,
+            knowledge_base_id=knowledge_base_id,
+            document_id=document_id,
+            document_version=document_version,
+        )
+    finally:
+        session.close()
 
 
 def load_task_boundaries(

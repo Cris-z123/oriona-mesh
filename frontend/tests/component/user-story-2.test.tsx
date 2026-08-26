@@ -56,6 +56,7 @@ const knowledgeBase = {
 const conversation = {
   id: "11111111-1111-4111-8111-111111111111",
   knowledge_base_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  knowledge_base_name: "产品研究",
   title: null,
   last_message_at: null,
   created_at: "2026-08-19T00:00:00Z",
@@ -168,7 +169,7 @@ describe("US2 会话必须绑定知识库", () => {
     );
   });
 
-  it("按页加载会话，并保留当前知识库范围", async () => {
+  it("全局历史按页加载，不因 URL 知识库缩小范围（T173）", async () => {
     api.listKnowledgeBases.mockResolvedValue({
       items: [knowledgeBase],
       page: 1,
@@ -189,7 +190,7 @@ describe("US2 会话必须绑定知识库", () => {
     await screen.findByText("未命名对话");
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     await waitFor(() => expect(screen.getAllByText("下一页")).toHaveLength(2));
-    expect(api.listConversations).toHaveBeenLastCalledWith(knowledgeBase.id, 2, 20);
+    expect(api.listConversations).toHaveBeenLastCalledWith(undefined, 2, 20);
   });
 
   it("允许重命名和删除当前知识库内的对话，并刷新列表", async () => {

@@ -133,6 +133,8 @@ export interface DocumentUploadResult {
 export interface Conversation {
   id: string;
   knowledge_base_id: string;
+  /** 当前用户授权关联投影的所属知识库名称（T172，非持久化字段）。 */
+  knowledge_base_name: string;
   title: string | null;
   last_message_at: string | null;
   created_at: string;

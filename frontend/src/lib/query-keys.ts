@@ -26,6 +26,9 @@ export const queryKeys = {
     ] as const,
   conversations: (knowledgeBaseId: string, page: number, pageSize: number) =>
     ["conversations", knowledgeBaseId, { page, pageSize }] as const,
+  /** 全局会话历史（T173 / FR-013）：与可选筛选范围使用不同键，避免混用 total 或页缓存。 */
+  conversationsGlobal: (page: number, pageSize: number) =>
+    ["conversations", "global", { page, pageSize }] as const,
   conversationsAll: () => ["conversations"] as const,
   conversationDetail: (conversationId: string) => ["conversations", conversationId] as const,
   messagesAll: (conversationId: string) => ["conversations", conversationId, "messages"] as const,

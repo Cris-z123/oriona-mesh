@@ -244,7 +244,7 @@ paths:
         '503': { $ref: '#/components/responses/ProtectionUnavailable' }
   /conversations:
     get:
-      summary: 列出当前用户对话
+      summary: 列出当前用户对话（默认全部，可按知识库筛选）
       x-rate-limit-policy: authenticated-default
       parameters:
         - { $ref: '#/components/parameters/ConversationKnowledgeBaseFilter' }
@@ -376,7 +376,7 @@ components:
       name: knowledge_base_id
       in: query
       required: false
-      description: 仅返回绑定指定知识库的当前用户对话；分页 total 在该知识库范围内计算。
+      description: 可选。提供时仅返回绑定指定知识库的当前用户对话，分页 total 在该范围内计算；省略时返回当前用户全部对话，分页 total 在全部对话范围内计算。两种结果均按最近活动倒序。
       schema: { type: string, format: uuid }
     MessageId: { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
     Page: { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
@@ -780,10 +780,11 @@ components:
         created_at: { type: string, format: date-time }
     Conversation:
       type: object
-      required: [id, knowledge_base_id, title, last_message_at, created_at, updated_at]
+      required: [id, knowledge_base_id, knowledge_base_name, title, last_message_at, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         knowledge_base_id: { type: string, format: uuid }
+        knowledge_base_name: { type: string, description: 当前用户范围内关联知识库的显示名称；由授权关联投影，不作为会话持久化字段。 }
         title: { type: ['string', 'null'] }
         last_message_at: { type: ['string', 'null'], format: date-time }
         created_at: { type: string, format: date-time }

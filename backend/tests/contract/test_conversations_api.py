@@ -8,6 +8,7 @@ before/limit 游标分页连续且无重复、统一 Citation DTO（live 强制�
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from itertools import count
 
 import pytest
@@ -254,6 +255,97 @@ class TestListConversations:
         assert resp.status_code == 200
         assert resp.json()["data"]["total"] == 1
         assert resp.json()["data"]["items"][0]["knowledge_base_id"] == str(kb_id)
+
+    # ------------------------------------------------------------------
+    # T170 / FR-013：全局会话历史（未选择知识库时直接分页浏览全部历史）
+    # ------------------------------------------------------------------
+    def test_global_list_without_filter_spans_all_knowledge_bases(
+        self, client: TestClient, clean_rate_limit_keys
+    ) -> None:
+        tokens = _register(client, "conv-global@example.com")
+        headers = _headers(tokens)
+        kb_alpha = _create_kb(client, headers, name="Alpha")
+        kb_beta = _create_kb(client, headers, name="Beta")
+        for kb_id in (kb_alpha, kb_beta):
+            for index in range(2):
+                assert (
+                    client.post(
+                        "/v1/conversations",
+                        json={"knowledge_base_id": str(kb_id), "title": f"c-{index}"},
+                        headers=headers,
+                    ).status_code
+                    == 201
+                )
+
+        response = client.get("/v1/conversations?page=1&page_size=3", headers=headers)
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["total"] == 4
+        assert len(data["items"]) == 3
+        assert {item["knowledge_base_id"] for item in data["items"]} <= {
+            str(kb_alpha),
+            str(kb_beta),
+        }
+        # total 在全局范围内计算：第二页仍能取到剩余会话。
+        second = client.get("/v1/conversations?page=2&page_size=3", headers=headers).json()["data"]
+        assert second["total"] == 4
+        assert len(second["items"]) == 1
+
+    def test_global_list_ordered_by_most_recent_activity(
+        self, client: TestClient, db_session: Session, clean_rate_limit_keys
+    ) -> None:
+        tokens = _register(client, "conv-order@example.com")
+        headers = _headers(tokens)
+        kb_id = _create_kb(client, headers)
+        created_ids: list[str] = []
+        for index in range(3):
+            resp = client.post(
+                "/v1/conversations",
+                json={"knowledge_base_id": str(kb_id), "title": f"c-{index}"},
+                headers=headers,
+            )
+            assert resp.status_code == 201
+            created_ids.append(resp.json()["data"]["id"])
+        # 模拟“最近活动”：显式推进三条会话的 updated_at（重命名/收消息都会刷新该列），
+        # 使期望顺序完全确定，不依赖创建时间的毫秒差异。
+        base = datetime.now(UTC) + timedelta(days=1)
+        for offset, conversation_id in zip((0, -1, -2), created_ids, strict=True):
+            conv = db_session.get(Conversation, uuid.UUID(conversation_id))
+            assert conv is not None
+            conv.updated_at = base + timedelta(hours=offset)
+        db_session.commit()
+
+        data = client.get("/v1/conversations", headers=headers).json()["data"]
+        assert data["total"] == 3
+        assert [item["id"] for item in data["items"]] == created_ids
+
+    def test_knowledge_base_name_projected_via_authorized_join(
+        self, client: TestClient, clean_rate_limit_keys
+    ) -> None:
+        tokens = _register(client, "conv-name@example.com")
+        headers = _headers(tokens)
+        kb_id = _create_kb(client, headers, name="产品手册")
+        resp = client.post(
+            "/v1/conversations", json={"knowledge_base_id": str(kb_id)}, headers=headers
+        )
+        assert resp.status_code == 201
+        created = resp.json()["data"]
+        assert created["knowledge_base_name"] == "产品手册"
+
+        listed = client.get("/v1/conversations", headers=headers).json()["data"]
+        assert listed["items"][0]["knowledge_base_name"] == "产品手册"
+        filtered = client.get(
+            f"/v1/conversations?knowledge_base_id={kb_id}", headers=headers
+        ).json()["data"]
+        assert filtered["items"][0]["knowledge_base_name"] == "产品手册"
+        detail = client.get(f"/v1/conversations/{created['id']}", headers=headers).json()["data"]
+        assert detail["knowledge_base_name"] == "产品手册"
+        renamed = client.patch(
+            f"/v1/conversations/{created['id']}",
+            json={"title": "新标题"},
+            headers=headers,
+        ).json()["data"]
+        assert renamed["knowledge_base_name"] == "产品手册"
 
 
 class TestGetConversation:

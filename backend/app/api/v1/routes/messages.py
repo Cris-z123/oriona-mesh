@@ -48,7 +48,7 @@ async def send_message(
     db: Session = Depends(get_db),
     answer: AnswerService = Depends(get_message_answer_service),
 ) -> StreamingResponse:
-    conv = ConversationService(db).get(current_user.id, conversation_id)
+    conv, _ = ConversationService(db).get(current_user.id, conversation_id)
     # 知识库已进入 deleting/delete_failed（T081 编排）时拒绝消息发送，20002/404。
     require_active_knowledge_base(db, conv.knowledge_base_id, current_user.id)
     bundle = answer.prepare(

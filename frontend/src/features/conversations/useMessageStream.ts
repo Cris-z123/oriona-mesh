@@ -86,8 +86,8 @@ export function useMessageStream(conversationId: string) {
     };
   }, [conversationId]);
 
-  const send = async (question: string) => {
-    if (!question || controllerRef.current) return;
+  const send = async (question: string): Promise<boolean> => {
+    if (!question || controllerRef.current) return false;
 
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -95,6 +95,7 @@ export function useMessageStream(conversationId: string) {
     setFeedback(null);
     setStreamCitations([]);
     let activeMessageId: string | null = null;
+    let accepted = false;
     let receivedTerminal = false;
     const isCurrentRequest = () => mountedRef.current && controllerRef.current === controller;
 
@@ -121,6 +122,7 @@ export function useMessageStream(conversationId: string) {
           if (event === "message_start") {
             activeMessageId = textValue(envelope.data, "message_id");
             if (!activeMessageId) return;
+            accepted = true;
             setStreamMessage({
               id: activeMessageId,
               conversation_id: conversationId,
@@ -170,19 +172,22 @@ export function useMessageStream(conversationId: string) {
       });
     } catch (error) {
       if (controller.signal.aborted && isCurrentRequest()) {
+        receivedTerminal = true;
         setStreamMessage((current) =>
           current ? { ...current, status: "cancelled", finish_reason: "cancelled" } : current
         );
         setFeedback({ kind: "cancelled" });
       } else if (isCurrentRequest()) {
+        receivedTerminal = true;
         setStreamMessage((current) =>
           current ? { ...current, status: "failed", finish_reason: "error" } : current
         );
         setFeedback(feedbackFromError(error));
       }
     } finally {
+      // 即使请求在 message_start 之前被拒绝，也需使历史查询接管，避免本地乐观状态漂移。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.messagesAll(conversationId) });
       if (activeMessageId) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.messagesAll(conversationId) });
         void queryClient.invalidateQueries({
           queryKey: queryKeys.citationsAll(conversationId, activeMessageId),
         });
@@ -201,6 +206,7 @@ export function useMessageStream(conversationId: string) {
         controllerRef.current = null;
       }
     }
+    return accepted;
   };
 
   return {
