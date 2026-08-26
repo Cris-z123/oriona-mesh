@@ -18,7 +18,7 @@ import { NavLinks, WorkspaceNav } from "./WorkspaceNav";
  * 桌面工作台应用壳（T137/T148 修订，ui-design §3.1）：
  * 左侧固定全局侧栏（lg+，可折叠，仅品牌/导航/账户）＋中央主工作区。
  * 小于 lg 时导航移入可访问抽屉，抽屉保留导航与账户等价入口。
- * 会话历史由对话工作区在明确知识库上下文下组合，不在壳层呈现（T157）。
+ * 对话路由的全局会话历史由壳层组合，不依赖 URL 中是否存在知识库参数（T157/T173）。
  * 本组件只维护布局与本地 UI 状态，不获取或改写业务真相。
  */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -50,7 +50,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
               ) : null}
               <div className="mt-auto border-t pt-3">
-                <AccountMenu onNavigate={() => setMobileNavOpen(false)} />
+                <AccountMenu onNavigate={() => setMobileNavOpen(false)} portalled={false} />
               </div>
             </SheetContent>
           </Sheet>

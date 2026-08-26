@@ -55,7 +55,7 @@ export function RegisterForm() {
         password: values.password,
         ...(values.displayName !== "" ? { display_name: values.displayName } : {}),
       });
-      router.push("/login");
+      router.push("/login?registered=1");
     } catch (err) {
       setApiError(asApiError(err));
     }

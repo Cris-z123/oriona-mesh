@@ -1,9 +1,24 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { MoreHorizontal, Upload } from "lucide-react";
 import { useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Pagination, pageAfterDeletingLastItem } from "@/components/ui/pagination";
@@ -22,6 +37,8 @@ import { DocumentDetail } from "@/features/documents/DocumentDetail";
 import { DocumentStatus } from "@/features/documents/DocumentStatus";
 import { useDeleteDocument, useDocumentList } from "@/features/documents/queries";
 import { isTombstone } from "@/features/documents/status";
+import { taskTypeLabel } from "@/features/documents/TaskHistory";
+import { formatDateTime } from "@/lib/format";
 import { useUiStore } from "@/stores/ui-store";
 
 const PAGE_SIZE = 20;
@@ -36,14 +53,20 @@ export function DocumentList({
   knowledgeBaseId,
   initialDocumentId = null,
   pollIntervalMs = 3000,
+  onUpload,
 }: {
   knowledgeBaseId: string;
   initialDocumentId?: string | null;
   pollIntervalMs?: number;
+  onUpload?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(initialDocumentId);
+  const [pendingDelete, setPendingDelete] = useState<{
+    document: Document;
+    action: ResourceAction;
+  } | null>(null);
   const statusFilter = useUiStore((state) => state.documentStatusFilter);
   const setStatusFilter = useUiStore((state) => state.setDocumentStatusFilter);
 
@@ -106,7 +129,18 @@ export function DocumentList({
           ))}
         </ul>
       ) : items.length === 0 && !error ? (
-        <EmptyState title="暂无资料" description="上传第一份资料后在此查看处理状态" />
+        <EmptyState
+          title="暂无资料"
+          description="上传第一份资料后在此查看处理状态"
+          action={
+            onUpload ? (
+              <Button variant="outline" onClick={onUpload}>
+                <Upload className="h-4 w-4" aria-hidden />
+                上传资料
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <ul className="space-y-2" aria-busy={list.isFetching || undefined}>
           {items.map((doc) => (
@@ -116,8 +150,12 @@ export function DocumentList({
                   {!isTombstone(doc) ? (
                     <>
                       <p className="truncate font-medium">{doc.filename}</p>
-                      <div className="mt-0.5 flex items-center gap-2">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
                         <DocumentStatus document={doc} />
+                        <span>
+                          阶段：{doc.current_task_type ? taskTypeLabel[doc.current_task_type] : "—"}
+                        </span>
+                        <span>更新：{formatDateTime(doc.updated_at)}</span>
                       </div>
                     </>
                   ) : null}
@@ -126,16 +164,38 @@ export function DocumentList({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  <DeleteDocumentDialog
-                    document={doc}
-                    pending={deleteMutation.isPending}
-                    onDelete={(action) => onDelete(doc, action)}
-                  />
-                  {!isTombstone(doc) ? (
-                    <Button variant="outline" onClick={() => setSelectedId(doc.id)}>
-                      详情
-                    </Button>
-                  ) : null}
+                  {isTombstone(doc) ? (
+                    <DeleteDocumentDialog
+                      document={doc}
+                      pending={deleteMutation.isPending}
+                      onDelete={(action) => onDelete(doc, action)}
+                    />
+                  ) : (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="h-9 w-9 p-0"
+                          aria-label={`资料操作 ${doc.filename}`}
+                          title={`资料操作 ${doc.filename}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" aria-hidden />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem onSelect={() => setSelectedId(doc.id)}>
+                          查看详情
+                        </DropdownMenuItem>
+                        {doc.allowed_actions.includes("delete") ? (
+                          <DropdownMenuItem
+                            onSelect={() => setPendingDelete({ document: doc, action: "delete" })}
+                          >
+                            删除
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
             </li>
@@ -150,6 +210,39 @@ export function DocumentList({
           onClose={() => setSelectedId(null)}
         />
       ) : null}
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>确认删除资料</AlertDialogTitle>
+          <AlertDialogDescription>
+            删除后资料将立即不可见，后台会继续清理文件和派生数据。
+          </AlertDialogDescription>
+          <div className="mt-5 flex justify-end gap-2">
+            <AlertDialogCancel asChild>
+              <Button variant="outline" disabled={deleteMutation.isPending}>
+                取消
+              </Button>
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                variant="destructive"
+                disabled={deleteMutation.isPending}
+                onClick={() => {
+                  if (pendingDelete) void onDelete(pendingDelete.document, pendingDelete.action);
+                  setPendingDelete(null);
+                }}
+              >
+                确认删除
+              </Button>
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Pagination
         page={page}

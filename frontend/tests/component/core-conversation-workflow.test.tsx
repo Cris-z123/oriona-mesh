@@ -141,7 +141,7 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("会话恢复与安全上下文", () => {
-  it("从 URL 恢复知识库：顶部选择器与会话列表跟随 URL", async () => {
+  it("从 URL 恢复已有会话时，知识库上下文只读展示而不提供切换器", async () => {
     search.value = "knowledgeBase=kb-2&conversation=conversation-2";
     readyList([CONVERSATION_TWO]);
     api.getConversation.mockResolvedValue(CONVERSATION_TWO);
@@ -149,11 +149,9 @@ describe("会话恢复与安全上下文", () => {
 
     renderWithProviders(<ConversationsWorkspace />);
 
-    // 打开选择器验证当前值为 URL 恢复的知识库。
-    fireEvent.click(screen.getByRole("button", { name: "选择知识库" }));
-    const option = await screen.findByRole("option", { name: "客户访谈" });
-    expect(option).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText(/当前对话基于：客户访谈/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "选择知识库" })).not.toBeInTheDocument();
+    expect(await screen.findByText("客户访谈")).toBeInTheDocument();
+    expect(screen.getByText("基于知识库")).toBeInTheDocument();
   });
 
   it("对话路由始终展示全局会话历史，不依赖 URL 知识库（T157/T173）", async () => {
@@ -235,6 +233,30 @@ describe("会话恢复与安全上下文", () => {
     expect(await screen.findByText("恢复的对话")).toBeInTheDocument();
   });
 
+  it("侧栏以最近对话标示历史，并提供图标式新建入口", async () => {
+    readyList([CONVERSATION_ONE]);
+    renderWithProviders(<ConversationSidebar />);
+
+    expect(await screen.findByText("最近对话")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新建对话" })).toBeInTheDocument();
+  });
+
+  it("历史以无外框活动账本呈现，当前会话只使用矿物青左侧标记", async () => {
+    search.value = "knowledgeBase=kb-1&conversation=conversation-1";
+    readyList([CONVERSATION_ONE, CONVERSATION_TWO]);
+
+    renderWithProviders(<ConversationSidebar />);
+
+    const history = await screen.findByRole("list", { name: "最近对话列表" });
+    expect(history).not.toHaveClass("rounded-md", "border", "bg-surface");
+    const rows = within(history).getAllByRole("listitem");
+    expect(rows[0]).toHaveAttribute("data-current", "true");
+    expect(rows[0]).toHaveClass("border-l-2", "border-primary", "bg-primary/5");
+    expect(rows[1]).toHaveClass("border-b");
+    expect(rows[1]).not.toHaveClass("rounded-md", "border-primary");
+    expect(within(rows[0]).getByRole("button", { name: "会话操作 已有对话" })).toBeInTheDocument();
+  });
+
   it("知识库超过单页时选择控件仍能访问全部", async () => {
     // 选择器打开时按需加载全部有效知识库（page_size=100，FR-013）。
     const all = Array.from({ length: 21 }, (_, index) =>
@@ -278,31 +300,16 @@ describe("会话恢复与安全上下文", () => {
     );
   });
 
-  it("切换知识库时若当前打开着会话，需确认后清空会话上下文", async () => {
+  it("已有会话不提供知识库切换入口，避免修改既有会话的证据范围", async () => {
     search.value = "knowledgeBase=kb-1&conversation=conversation-1";
     readyList([CONVERSATION_ONE, CONVERSATION_TWO]);
     api.getConversation.mockResolvedValue(CONVERSATION_ONE);
     api.getKnowledgeBase.mockResolvedValue(KB_ONE);
 
     renderWithProviders(<ConversationsWorkspace />);
-    const selectKnowledgeBase = async () => {
-      fireEvent.click(screen.getByRole("button", { name: "选择知识库" }));
-      fireEvent.click(await screen.findByRole("option", { name: "客户访谈" }));
-    };
-    await selectKnowledgeBase();
-
-    // 确认弹窗出现；取消则不切换。
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("切换知识库");
-    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-    expect(navigation.replace).not.toHaveBeenCalled();
-
-    // 再次切换并确认：URL 清空 conversation 参数并切到新知识库。
-    await selectKnowledgeBase();
-    fireEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "继续切换" })
-    );
-    expect(navigation.replace).toHaveBeenCalledWith("/conversations?knowledgeBase=kb-2");
+    expect(await screen.findByText("产品研究")).toBeInTheDocument();
+    expect(screen.getByText("基于知识库")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "选择知识库" })).not.toBeInTheDocument();
   });
 });
 
@@ -321,7 +328,7 @@ describe("阶段 13 体验一致性（T153）", () => {
     expect(await screen.findByText("选择知识库后，即可输入内容开始新对话。")).toBeInTheDocument();
   });
 
-  it("切换知识库时重置会话页码、选中会话与引用选择", async () => {
+  it("已有会话保留引用选择，不暴露可改变知识库范围的选择器", async () => {
     search.value = "knowledgeBase=kb-1&conversation=conversation-1";
     readyList([CONVERSATION_ONE]);
     api.getConversation.mockResolvedValue(CONVERSATION_ONE);
@@ -329,15 +336,10 @@ describe("阶段 13 体验一致性（T153）", () => {
     useUiStore.getState().openCitationDrawer("message-old:1");
 
     renderWithProviders(<ConversationsWorkspace />);
-    fireEvent.click(screen.getByRole("button", { name: "选择知识库" }));
-    fireEvent.click(await screen.findByRole("option", { name: "客户访谈" }));
-    fireEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "继续切换" })
-    );
-
-    // URL 清空 conversation（选中会话重置），引用选择器清空。
-    expect(navigation.replace).toHaveBeenCalledWith("/conversations?knowledgeBase=kb-2");
-    expect(useUiStore.getState().citationDrawerSelector).toBeNull();
+    expect(await screen.findByText("产品研究")).toBeInTheDocument();
+    expect(screen.getByText("基于知识库")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "选择知识库" })).not.toBeInTheDocument();
+    expect(useUiStore.getState().citationDrawerSelector).toBe("message-old:1");
   });
 
   it("知识库选择器按需加载可访问全部有效知识库", async () => {
@@ -726,6 +728,12 @@ describe("阶段 13 消息即时体验（T155/T159）", () => {
 });
 
 describe("消息加载与输入", () => {
+  it("消息线程保持 704px 单列阅读宽度", () => {
+    renderWithProviders(<MessageThread conversationId="conversation-1" />);
+
+    expect(screen.getByRole("region", { name: "消息线程" })).toHaveClass("max-w-[704px]");
+  });
+
   it("初次加载消息时显示明确的加载状态", () => {
     api.listMessages.mockReturnValue(new Promise(() => undefined));
     renderWithProviders(<MessageThread conversationId="conversation-1" />);

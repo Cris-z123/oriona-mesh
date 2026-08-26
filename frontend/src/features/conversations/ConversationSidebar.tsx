@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, SquarePen } from "lucide-react";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -27,6 +27,7 @@ import { useToast } from "@/components/ui/toast";
 import { deleteConversation, listConversations, renameConversation } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import type { Conversation } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 import { useUiStore } from "@/stores/ui-store";
 
 const PAGE_SIZE = 20;
@@ -63,6 +64,13 @@ export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void })
     // 原子恢复会话及其绑定知识库的 URL 上下文，不触发正文顶部选择器的确认。
     router.push(
       `/conversations?knowledgeBase=${conversation.knowledge_base_id}&conversation=${conversation.id}`
+    );
+    onNavigate?.();
+  };
+  const startNewConversation = () => {
+    closeCitationDrawer();
+    router.push(
+      urlKnowledgeBaseId ? `/conversations?knowledgeBase=${urlKnowledgeBaseId}` : "/conversations"
     );
     onNavigate?.();
   };
@@ -110,6 +118,18 @@ export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void })
 
   return (
     <div className="space-y-3 p-2">
+      <div className="flex items-center justify-between px-1">
+        <p className="text-xs font-medium tracking-[0.14em] text-muted-foreground">最近对话</p>
+        <Button
+          variant="ghost"
+          className="h-8 w-8 p-0"
+          aria-label="新建对话"
+          title="新建对话"
+          onClick={startNewConversation}
+        >
+          <SquarePen className="h-4 w-4" aria-hidden />
+        </Button>
+      </div>
       {error ? (
         <ErrorState
           error={toErrorStateValue(error, "操作失败，请重试。")}
@@ -121,73 +141,85 @@ export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void })
       ) : conversations.isError ? null : items.length === 0 ? (
         <EmptyState title="尚无对话" description="在主内容区输入内容，即可开始新对话。" />
       ) : (
-        <ul className="divide-y rounded-md border bg-surface">
-          {items.map((conversation) => (
-            <li
-              key={conversation.id}
-              className="flex items-center justify-between gap-1 px-3 py-2 text-sm"
-            >
-              {editingId === conversation.id ? (
-                <label className="flex min-w-0 flex-1 items-center gap-2">
-                  <span className="sr-only">新标题</span>
-                  <input
-                    aria-label="新标题"
-                    className="h-8 w-28 rounded-md border border-input bg-background px-2"
-                    value={titleDraft}
-                    onChange={(event) => setTitleDraft(event.target.value)}
-                  />
-                  <Button
-                    className="h-8"
-                    disabled={!titleDraft.trim() || rename.isPending}
-                    onClick={() => saveTitle(conversation.id)}
-                  >
-                    保存标题
-                  </Button>
-                </label>
-              ) : (
-                <>
-                  <Button
-                    variant="ghost"
-                    className="h-auto min-w-0 flex-1 justify-start px-1 py-1 text-left"
-                    aria-label={`打开对话 ${conversation.title || "未命名对话"}`}
-                    onClick={() => openConversation(conversation)}
-                  >
-                    <span className="flex min-w-0 flex-col items-start">
-                      <span className="truncate">{conversation.title || "未命名对话"}</span>
-                      {/* 所属知识库名称（T172 授权投影）作为次级标签。 */}
-                      <span className="truncate text-xs text-muted-foreground">
-                        {conversation.knowledge_base_name}
+        <ul aria-label="最近对话列表" className="m-0 list-none p-0">
+          {items.map((conversation) => {
+            const isCurrent = conversation.id === conversationId;
+
+            return (
+              <li
+                key={conversation.id}
+                data-current={isCurrent || undefined}
+                className={cn(
+                  "group flex items-center justify-between gap-1 border-b border-border/60 border-l-2 px-2 py-2 text-sm last:border-b-0",
+                  isCurrent
+                    ? "border-primary bg-primary/5"
+                    : "border-transparent hover:bg-accent/45 focus-within:bg-accent/45"
+                )}
+              >
+                {editingId === conversation.id ? (
+                  <label className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="sr-only">新标题</span>
+                    <input
+                      aria-label="新标题"
+                      className="h-8 w-28 rounded-md border border-input bg-background px-2"
+                      value={titleDraft}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                    />
+                    <Button
+                      className="h-8"
+                      disabled={!titleDraft.trim() || rename.isPending}
+                      onClick={() => saveTitle(conversation.id)}
+                    >
+                      保存标题
+                    </Button>
+                  </label>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      className="h-auto min-w-0 flex-1 justify-start rounded-sm px-1 py-1 text-left hover:bg-transparent"
+                      aria-label={`打开对话 ${conversation.title || "未命名对话"}`}
+                      onClick={() => openConversation(conversation)}
+                    >
+                      <span className="flex min-w-0 flex-col items-start">
+                        <span className={cn("truncate", isCurrent && "text-primary")}>
+                          {conversation.title || "未命名对话"}
+                        </span>
+                        {/* 所属知识库名称（T172 授权投影）作为次级标签。 */}
+                        <span className="truncate text-xs text-muted-foreground">
+                          {conversation.knowledge_base_name}
+                        </span>
                       </span>
-                    </span>
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        className="h-8 w-8 shrink-0 p-0"
-                        aria-label={`会话操作 ${conversation.title || "未命名对话"}`}
-                      >
-                        <MoreHorizontal className="h-4 w-4" aria-hidden />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          setEditingId(conversation.id);
-                          setTitleDraft(conversation.title ?? "");
-                        }}
-                      >
-                        重命名
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setPendingDeleteId(conversation.id)}>
-                        删除
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </>
-              )}
-            </li>
-          ))}
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="h-8 w-8 shrink-0 p-0"
+                          aria-label={`会话操作 ${conversation.title || "未命名对话"}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" aria-hidden />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setEditingId(conversation.id);
+                            setTitleDraft(conversation.title ?? "");
+                          }}
+                        >
+                          重命名
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setPendingDeleteId(conversation.id)}>
+                          删除
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       {conversations.data && conversations.data.total > PAGE_SIZE ? (

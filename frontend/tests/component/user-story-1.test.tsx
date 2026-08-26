@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "../helpers";
@@ -242,7 +243,7 @@ describe("US1 认证", () => {
         display_name: "Alice",
       })
     );
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/login?registered=1"));
   });
 
   it("已有会话时恢复用户并可访问受保护内容", async () => {
@@ -365,7 +366,7 @@ describe("US1 知识库列表", () => {
     expect(screen.queryByRole("button", { name: /打开知识库/ })).not.toBeInTheDocument();
   });
 
-  it("active 知识库仅允许删除操作；delete_failed 重试删除调用 DELETE", async () => {
+  it("active 知识库通过次级菜单删除；delete_failed 重试删除调用 DELETE", async () => {
     // 删除成功后列表重取：第二次返回相同数据，保证墓碑行在断言期间仍存在
     api.listKnowledgeBases
       .mockResolvedValueOnce(page([KB_ACTIVE, KB_TOMBSTONE]))
@@ -373,8 +374,10 @@ describe("US1 知识库列表", () => {
     api.deleteKnowledgeBase.mockResolvedValue(undefined);
     renderWithProviders(<KnowledgeBaseList />);
     await screen.findByText("笔记");
-    // active 行：仅“删除”
-    fireEvent.click(screen.getByRole("button", { name: /删除笔记/ }));
+    // active 行：删除收进低干扰的次级操作菜单
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "知识库操作 笔记" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
     fireEvent.click(screen.getByRole("button", { name: /^确认删除$/ }));
     await waitFor(() => expect(api.deleteKnowledgeBase).toHaveBeenCalledWith("kb-1"));
     // delete_failed 行：仅“重试删除”，重复请求不显示普通删除
@@ -388,8 +391,9 @@ describe("US1 知识库列表", () => {
     api.createKnowledgeBase.mockResolvedValue(KB_ACTIVE);
     renderWithProviders(<KnowledgeBaseList />);
     await screen.findByText("笔记");
+    fireEvent.click(screen.getByRole("button", { name: "新建知识库" }));
     fireEvent.change(screen.getByLabelText(/知识库名称/), { target: { value: "新库" } });
-    fireEvent.click(screen.getByRole("button", { name: /创建/ }));
+    fireEvent.click(screen.getByRole("button", { name: "创建并进入资料" }));
     await waitFor(() => expect(api.createKnowledgeBase).toHaveBeenCalledWith({ name: "新库" }));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/knowledge-bases/${KB_ACTIVE.id}`));
     await waitFor(() => expect(api.listKnowledgeBases).toHaveBeenCalledTimes(2));
@@ -485,9 +489,9 @@ describe("US1 资料列表", () => {
     renderWithProviders(<DocumentList knowledgeBaseId="kb-1" />);
     expect(await screen.findByText("资料解析失败，请删除后重新上传")).toBeInTheDocument();
     expect(screen.getByText("资料内容为空，请删除后重新上传")).toBeInTheDocument();
-    const deleteButtons = screen.getAllByRole("button", { name: /^删除$/ });
-    expect(deleteButtons).toHaveLength(2);
-    fireEvent.click(deleteButtons[0]!);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "资料操作 bad.pdf" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
     fireEvent.click(screen.getByRole("button", { name: /^确认删除$/ }));
     await waitFor(() => expect(api.deleteDocument).toHaveBeenCalledWith("kb-1", "d-failed"));
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(2));
@@ -503,7 +507,9 @@ describe("US1 资料列表", () => {
     fireEvent.click(screen.getByRole("button", { name: /下一页/ }));
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(2));
     // 第 2 页上删除最后一项
-    fireEvent.click(screen.getByRole("button", { name: /^删除$/ }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "资料操作 ok.pdf" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
     fireEvent.click(screen.getByRole("button", { name: /^确认删除$/ }));
     await waitFor(() => expect(api.deleteDocument).toHaveBeenCalledWith("kb-1", "d-done"));
     await waitFor(() => expect(api.listDocuments).toHaveBeenCalledTimes(3));

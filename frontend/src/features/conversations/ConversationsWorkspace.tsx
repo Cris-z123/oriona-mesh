@@ -1,21 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Send } from "lucide-react";
+import { Database, Send } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type KeyboardEvent } from "react";
 
 import { AppShell } from "@/components/app-shell/AppShell";
 import { CitationDrawer } from "@/features/citations/CitationDrawer";
 import { RequireAuth } from "@/features/auth/RequireAuth";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState, toErrorStateValue, type ErrorStateValue } from "@/components/ui/error-state";
@@ -46,8 +38,8 @@ function conversationErrorValue(error: unknown): ErrorStateValue {
 
 /**
  * 会话主内容区（T151/T157，ui-design §3.1）：顶部当前知识库选择（按需加载全部、
- * 绝不回退），左栏会话历史仅在有明确知识库时呈现，正文为消息线程；
- * 无会话时提供"输入即新建"起始态。切换知识库时若当前打开着会话，先确认清空。
+ * 绝不回退），左栏会话历史位于全局侧栏，正文为消息线程；已有会话的知识库
+ * 上下文只读，无会话时才显示选择器并提供“输入即新建”起始态。
  */
 export function ConversationsWorkspace() {
   const router = useRouter();
@@ -56,7 +48,6 @@ export function ConversationsWorkspace() {
   const conversationId = searchParams.get("conversation");
   const knowledgeBaseId = searchParams.get("knowledgeBase") ?? "";
   const closeCitationDrawer = useUiStore((state) => state.closeCitationDrawer);
-  const [pendingKbId, setPendingKbId] = useState<string | null>(null);
   const [starterContent, setStarterContent] = useState("");
   const [startError, setStartError] = useState<ReturnType<typeof asApiError> | null>(null);
   const [draft, setDraft] = useState<{ conversationId: string; content: string } | null>(null);
@@ -90,13 +81,8 @@ export function ConversationsWorkspace() {
     closeCitationDrawer();
     router.replace(`/conversations?knowledgeBase=${value}`);
   };
-  // 切换知识库：若当前打开着会话，先请求确认（会清空当前会话上下文）。
   const selectKnowledgeBase = (value: string) => {
     if (value === knowledgeBaseId) return;
-    if (conversationId) {
-      setPendingKbId(value);
-      return;
-    }
     applyKnowledgeBase(value);
   };
 
@@ -138,7 +124,7 @@ export function ConversationsWorkspace() {
       <AppShell>
         {/* 主内容区（T151/T157）：会话历史位于全局侧栏，此处只承载对话正文。 */}
         <div className="flex min-h-[60dvh] flex-col lg:h-[calc(100dvh-7rem)]">
-          <header className="shrink-0">
+          <header className="shrink-0 border-b pb-5">
             <div className="flex flex-wrap items-end gap-4">
               <div>
                 <h1 className="font-display text-2xl font-semibold">对话</h1>
@@ -146,16 +132,21 @@ export function ConversationsWorkspace() {
                   所有回答均仅以当前知识库范围内已完成资料为证据。
                 </p>
               </div>
-              <label className="grid gap-1 text-sm" htmlFor="conversation-knowledge-base">
-                当前知识库
-                <KnowledgeBasePicker value={knowledgeBaseId} onChange={selectKnowledgeBase} />
-              </label>
+              {conversationId ? (
+                <div className="ml-auto flex items-center gap-2 rounded-md border border-clue/25 bg-clue/5 px-3 py-2 text-sm">
+                  <Database className="h-4 w-4 text-clue" aria-hidden />
+                  <span className="text-muted-foreground">基于知识库</span>
+                  <span className="font-medium text-foreground">
+                    {boundKnowledgeBase.data?.name ?? "正在加载…"}
+                  </span>
+                </div>
+              ) : (
+                <label className="grid gap-1 text-sm" htmlFor="conversation-knowledge-base">
+                  当前知识库
+                  <KnowledgeBasePicker value={knowledgeBaseId} onChange={selectKnowledgeBase} />
+                </label>
+              )}
             </div>
-            {boundKnowledgeBaseId && boundKnowledgeBase.data?.name ? (
-              <p className="mt-2 text-sm text-muted-foreground">
-                当前对话基于：{boundKnowledgeBase.data.name}
-              </p>
-            ) : null}
           </header>
           {conversationId && selectedConversation.isLoading ? (
             <div className="mt-4 flex min-h-0 flex-1 flex-col">
@@ -232,36 +223,6 @@ export function ConversationsWorkspace() {
             </div>
           ) : null}
         </div>
-
-        {/* 切换知识库确认：清空当前会话上下文前必须获得确认。 */}
-        <AlertDialog
-          open={pendingKbId !== null}
-          onOpenChange={(open) => {
-            if (!open) setPendingKbId(null);
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogTitle>切换知识库</AlertDialogTitle>
-            <AlertDialogDescription>
-              切换知识库将清空当前会话上下文并返回对话列表，是否继续？
-            </AlertDialogDescription>
-            <div className="flex justify-end gap-2">
-              <AlertDialogCancel asChild>
-                <Button variant="outline">取消</Button>
-              </AlertDialogCancel>
-              <AlertDialogAction asChild>
-                <Button
-                  onClick={() => {
-                    if (pendingKbId) applyKnowledgeBase(pendingKbId);
-                    setPendingKbId(null);
-                  }}
-                >
-                  继续切换
-                </Button>
-              </AlertDialogAction>
-            </div>
-          </AlertDialogContent>
-        </AlertDialog>
       </AppShell>
     </RequireAuth>
   );

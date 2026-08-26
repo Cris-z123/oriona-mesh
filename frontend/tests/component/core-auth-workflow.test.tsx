@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/app-shell/AppShell";
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import { LoginForm } from "@/features/auth/LoginForm";
 import { RegisterForm } from "@/features/auth/RegisterForm";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { clearSession, getSession, setSession } from "@/lib/api/session";
@@ -46,6 +47,7 @@ const api = vi.hoisted(() => {
         ? error
         : new ApiError({ code: 50000, msg: "请求失败", status: 500, traceId: null }),
     getMe: vi.fn(),
+    login: vi.fn(),
     logout: vi.fn(),
     register: vi.fn(),
   };
@@ -73,6 +75,7 @@ beforeEach(() => {
   nav.push.mockReset();
   nav.replace.mockReset();
   api.getMe.mockReset();
+  api.login.mockReset();
   api.logout.mockReset();
   api.register.mockReset();
 });
@@ -180,7 +183,13 @@ describe("注册校验", () => {
       })
     );
     expect(api.register.mock.calls[0]?.[0]).not.toHaveProperty("confirmPassword");
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/login?registered=1"));
+  });
+
+  it("登录页明确确认注册成功并引导下一步", () => {
+    render(<LoginForm registered />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("注册成功，请使用新账号登录。");
   });
 });
 
@@ -221,6 +230,26 @@ describe("认证恢复", () => {
 });
 
 describe("表单安全错误", () => {
+  it("登录服务端错误紧邻表单呈现安全消息与可复制 trace_id", async () => {
+    api.login.mockRejectedValue(
+      new api.ApiError({ code: 20001, msg: "邮箱或密码错误", status: 401, traceId: TRACE_ID })
+    );
+    render(<LoginForm />);
+    fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "alice@example.com" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "pass1234" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+
+    const form = screen.getByRole("button", { name: "登录" }).closest("form");
+    expect(form).not.toBeNull();
+    const error = await within(form as HTMLFormElement).findByRole("alert");
+    expect(error).toHaveTextContent("邮箱或密码错误");
+    expect(error).toHaveTextContent(`trace_id: ${TRACE_ID}`);
+    expect(
+      within(form as HTMLFormElement).getByRole("button", { name: "复制追踪 ID" })
+    ).toBeInTheDocument();
+  });
+
   it("注册服务端错误紧邻表单呈现安全消息与可复制 trace_id", async () => {
     api.register.mockRejectedValue(
       new api.ApiError({ code: 20001, msg: "邮箱已注册", status: 409, traceId: TRACE_ID })
@@ -240,6 +269,22 @@ describe("表单安全错误", () => {
 });
 
 describe("账户菜单与窄屏导航", () => {
+  it("账户菜单可由方向键打开并将焦点交给首个操作", async () => {
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <AppShell>内容</AppShell>
+      </AuthProvider>
+    );
+
+    const accountMenu = await screen.findByRole("button", { name: /账户菜单/ });
+    accountMenu.focus();
+    await user.keyboard("{ArrowDown}");
+
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "个人资料" }));
+  });
+
   it("显示名派生首字母账户菜单，并提供资料、主题和退出操作", async () => {
     const user = userEvent.setup();
     setSession({
@@ -286,10 +331,12 @@ describe("账户菜单与窄屏导航", () => {
     // 知识库选择与新建对话位于会话页面内容区（有意布局）；抽屉保留导航与账户入口。
     expect(within(drawer).getByRole("link", { name: "知识库" })).toBeInTheDocument();
     expect(within(drawer).getByRole("link", { name: "对话" })).toBeInTheDocument();
-    fireEvent.click(within(drawer).getByRole("button", { name: "账户菜单" }));
-    expect(within(drawer).getByRole("menuitem", { name: "个人资料" })).toBeInTheDocument();
-    expect(within(drawer).getByRole("menuitem", { name: /切换到.*主题/ })).toBeInTheDocument();
-    expect(within(drawer).getByRole("menuitem", { name: "退出登录" })).toBeInTheDocument();
+    await user.click(within(drawer).getByRole("button", { name: "账户菜单" }));
+    // 抽屉内菜单保留在同一模态焦点层，仍由抽屉内触发器开启。
+    expect(screen.getByRole("menuitem", { name: "个人资料" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /切换到.*主题/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "退出登录" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
 
     const focusables = focusableElements(drawer);
     expect(focusables.length).toBeGreaterThan(1);

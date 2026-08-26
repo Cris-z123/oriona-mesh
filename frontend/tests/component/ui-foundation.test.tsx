@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import { CitationCard } from "@/features/citations/CitationCard";
 import { ApiError } from "@/lib/api/client";
 import { useUiStore } from "@/stores/ui-store";
 import type { ReactNode } from "react";
@@ -97,6 +98,38 @@ describe("主题令牌与动效降级", () => {
     const back = screen.getByRole("button", { name: "切换到浅色主题" });
     fireEvent.click(back);
     expect(document.documentElement).not.toHaveClass("dark");
+  });
+});
+
+describe("Evidence Console 证据语义", () => {
+  it("引用使用左侧靛蓝证据轨道与 rank 标记，而不是主操作色", () => {
+    render(
+      <CitationCard
+        messageId="message-1"
+        citations={[
+          {
+            rank: 1,
+            score: 0.92,
+            filename: "network.md",
+            source_type: "snapshot",
+            document_id: null,
+            chunk_id: null,
+            document_version: 1,
+            file_type: "md",
+            page: 1,
+            section: "维护性",
+            content: "来源摘录",
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("list", { name: "回答引用" })).toHaveClass(
+      "border-l-2",
+      "border-clue/50"
+    );
+    expect(screen.getByLabelText("引用序号 1")).toHaveTextContent("[1]");
+    expect(screen.getByRole("button", { name: "查看引用 network.md" })).toHaveClass("text-clue");
   });
 });
 

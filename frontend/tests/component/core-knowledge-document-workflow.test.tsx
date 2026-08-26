@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "../helpers";
@@ -128,6 +129,9 @@ function apiError(message: string) {
 }
 
 function selectUpload(files: File[]) {
+  if (!screen.queryByLabelText("选择文件")) {
+    fireEvent.click(screen.getAllByRole("button", { name: "上传资料" })[0]);
+  }
   fireEvent.change(screen.getByLabelText("选择文件"), { target: { files } });
 }
 
@@ -150,14 +154,26 @@ afterEach(() => {
 });
 
 describe("知识库进入资料工作区", () => {
+  it("通过明确的新建入口在对话框中填写知识库信息", async () => {
+    api.listKnowledgeBases.mockResolvedValue(page([]));
+    renderWithProviders(<KnowledgeBaseList />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "新建知识库" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "新建知识库" });
+    expect(within(dialog).getByLabelText("知识库名称")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("描述")).toBeInTheDocument();
+  });
+
   it("创建成功后直接进入新知识库的资料工作区", async () => {
     api.listKnowledgeBases.mockResolvedValue(page([KNOWLEDGE_BASE]));
     api.createKnowledgeBase.mockResolvedValue(KNOWLEDGE_BASE);
 
     renderWithProviders(<KnowledgeBaseList />);
     await screen.findByText("旅行笔记");
+    fireEvent.click(screen.getByRole("button", { name: "新建知识库" }));
     fireEvent.change(screen.getByLabelText("知识库名称"), { target: { value: "旅行笔记" } });
-    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建并进入资料" }));
 
     await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/knowledge-bases/kb-1"));
   });
@@ -170,7 +186,19 @@ describe("知识库进入资料工作区", () => {
 
     const entryLink = screen.getByRole("link", { name: "打开资料 旅行笔记" });
     expect(entryLink).toHaveAttribute("href", "/knowledge-bases/kb-1");
-    expect(screen.getByRole("button", { name: "打开资料" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "打开资料" })).not.toBeInTheDocument();
+  });
+
+  it("知识库的编辑与删除收进带可访问名称的次级操作菜单", async () => {
+    api.listKnowledgeBases.mockResolvedValue(page([KNOWLEDGE_BASE]));
+
+    renderWithProviders(<KnowledgeBaseList />);
+    await screen.findByText("旅行笔记");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "知识库操作 旅行笔记" }));
+    expect(await screen.findByRole("menuitem", { name: "编辑" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
   });
 
   it("编辑时允许将已有描述明确保存为空字符串", async () => {
@@ -179,7 +207,9 @@ describe("知识库进入资料工作区", () => {
 
     renderWithProviders(<KnowledgeBaseList />);
     await screen.findByText("出发前的整理");
-    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "知识库操作 旅行笔记" }));
+    await user.click(await screen.findByRole("menuitem", { name: "编辑" }));
     fireEvent.change(screen.getByLabelText("描述", { selector: "#edit-desc-kb-1" }), {
       target: { value: "" },
     });
@@ -264,6 +294,31 @@ describe("资料上传与筛选后终态", () => {
 });
 
 describe("资料详情上下文", () => {
+  it("资料行展示中文阶段与时间，详情和删除收进次级操作菜单", async () => {
+    api.listDocuments.mockResolvedValue(
+      page([
+        documentFixture({
+          status: "processing",
+          current_task_type: "parse",
+          updated_at: "2026-08-20T00:01:00Z",
+        }),
+      ])
+    );
+
+    renderWithProviders(<DocumentList knowledgeBaseId="kb-1" />);
+    await screen.findByText("行程.txt");
+
+    expect(screen.getByText("处理中")).toBeInTheDocument();
+    expect(screen.getByText("阶段：解析")).toBeInTheDocument();
+    expect(screen.getByText(/^更新：/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "详情" })).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "资料操作 行程.txt" }));
+    expect(await screen.findByRole("menuitem", { name: "查看详情" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
+  });
+
   it("详情以可关闭抽屉打开，删除成功后关闭并清除资料上下文", async () => {
     const doc = documentFixture();
     api.listDocuments.mockResolvedValue(page([doc]));
@@ -272,7 +327,9 @@ describe("资料详情上下文", () => {
 
     renderWithProviders(<DocumentList knowledgeBaseId="kb-1" />);
     await screen.findByText("行程.txt");
-    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "资料操作 行程.txt" }));
+    await user.click(screen.getByRole("menuitem", { name: "查看详情" }));
 
     const drawer = await screen.findByRole("dialog", { name: "资料详情" });
     expect(within(drawer).getByText("行程.txt")).toBeInTheDocument();
@@ -281,7 +338,8 @@ describe("资料详情上下文", () => {
       expect(screen.queryByRole("dialog", { name: "资料详情" })).not.toBeInTheDocument()
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+    await user.click(screen.getByRole("button", { name: "资料操作 行程.txt" }));
+    await user.click(screen.getByRole("menuitem", { name: "查看详情" }));
     const reopenedDrawer = await screen.findByRole("dialog", { name: "资料详情" });
     fireEvent.click(within(reopenedDrawer).getByRole("button", { name: "删除" }));
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
@@ -329,6 +387,19 @@ describe("阶段 13 体验一致性（T154）", () => {
     expect(api.uploadDocuments).toHaveBeenCalledTimes(1);
   });
 
+  it("空资料列表提供与页头等价的上传入口", async () => {
+    api.listDocuments.mockResolvedValue(page([]));
+    api.getKnowledgeBase.mockResolvedValue(KNOWLEDGE_BASE);
+
+    renderWithProviders(<KnowledgeBaseDocumentsPage />);
+    await screen.findByText("暂无资料");
+
+    const uploadButtons = screen.getAllByRole("button", { name: "上传资料" });
+    expect(uploadButtons).toHaveLength(2);
+    fireEvent.click(uploadButtons[1]);
+    expect(await screen.findByRole("dialog", { name: "上传资料" })).toBeInTheDocument();
+  });
+
   it("读取失败显示可重试错误，不降级为空列表", async () => {
     api.listDocuments.mockRejectedValue({ msg: "资料加载失败", traceId: "trace-docs" });
 
@@ -370,7 +441,9 @@ describe("资料加载失败", () => {
 
     renderWithProviders(<DocumentList knowledgeBaseId="kb-1" />);
     await screen.findByText("行程.txt");
-    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "资料操作 行程.txt" }));
+    await user.click(screen.getByRole("menuitem", { name: "查看详情" }));
 
     expect(await screen.findByText("资料详情暂时无法加载")).toBeInTheDocument();
     expect(screen.getByText(`trace_id: ${TRACE_ID}`)).toBeInTheDocument();

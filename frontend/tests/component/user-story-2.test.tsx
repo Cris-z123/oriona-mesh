@@ -355,7 +355,7 @@ describe("US2 消息、SSE 与用户反馈", () => {
     await screen.findByRole("button", { name: /查看引用.*客户访谈纪要\.pdf/ });
     fireEvent.click(screen.getByRole("button", { name: "加载更多引用" }));
 
-    expect(await screen.findByText("[21] 客户访谈纪要.pdf")).toBeInTheDocument();
+    expect(await screen.findByLabelText("引用序号 21")).toHaveTextContent("[21]");
     expect(api.listCitations).toHaveBeenNthCalledWith(
       2,
       conversation.id,
