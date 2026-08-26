@@ -33,10 +33,13 @@ class SendMessageInput(BaseModel):
     content: str = Field(min_length=1, max_length=12000)
 
 
-def conversation_dto(conv: Conversation) -> dict:
+def conversation_dto(conv: Conversation, knowledge_base_name: str) -> dict:
+    """会话 DTO（T172 / openapi.yaml Conversation）：``knowledge_base_name`` 为
+    当前用户授权关联投影，不作为 ``conversations`` 持久化字段。"""
     return {
         "id": str(conv.id),
         "knowledge_base_id": str(conv.knowledge_base_id),
+        "knowledge_base_name": knowledge_base_name,
         "title": conv.title,
         "last_message_at": (conv.last_message_at.isoformat() if conv.last_message_at else None),
         "created_at": conv.created_at.isoformat(),

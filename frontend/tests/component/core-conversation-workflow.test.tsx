@@ -86,10 +86,16 @@ function knowledgeBase(id: string, name: string): KnowledgeBase {
   };
 }
 
-function conversation(id: string, knowledgeBaseId: string, title: string): Conversation {
+function conversation(
+  id: string,
+  knowledgeBaseId: string,
+  title: string | null,
+  knowledgeBaseName = "产品研究"
+): Conversation {
   return {
     id,
     knowledge_base_id: knowledgeBaseId,
+    knowledge_base_name: knowledgeBaseName,
     title,
     last_message_at: null,
     created_at: "2026-08-20T00:00:00Z",
@@ -150,7 +156,7 @@ describe("会话恢复与安全上下文", () => {
     expect(await screen.findByText(/当前对话基于：客户访谈/)).toBeInTheDocument();
   });
 
-  it("会话历史仅在与对话路由且 URL 明确知识库时呈现（T157）", async () => {
+  it("对话路由始终展示全局会话历史，不依赖 URL 知识库（T157/T173）", async () => {
     pathname.value = "/conversations";
     search.value = "knowledgeBase=kb-1";
     readyList([CONVERSATION_ONE]);
@@ -162,7 +168,7 @@ describe("会话恢复与安全上下文", () => {
     );
 
     expect(await screen.findByText("已有对话")).toBeInTheDocument();
-    expect(api.listConversations).toHaveBeenCalledWith("kb-1", 1, 20);
+    expect(api.listConversations).toHaveBeenCalledWith(undefined, 1, 20);
   });
 
   it("非对话路由不展示会话历史（T157）", async () => {
@@ -180,7 +186,7 @@ describe("会话恢复与安全上下文", () => {
     expect(api.listConversations).not.toHaveBeenCalled();
   });
 
-  it("对话路由但无明确知识库时不展示会话历史（T157）", async () => {
+  it("对话路由且无明确知识库时仍展示全局会话历史（T157/T173）", async () => {
     pathname.value = "/conversations";
     search.value = "";
     readyList([CONVERSATION_ONE]);
@@ -191,37 +197,41 @@ describe("会话恢复与安全上下文", () => {
       </AuthProvider>
     );
 
-    expect(screen.queryByText("已有对话")).not.toBeInTheDocument();
-    expect(api.listConversations).not.toHaveBeenCalled();
+    expect(await screen.findByText("已有对话")).toBeInTheDocument();
+    expect(api.listConversations).toHaveBeenCalledWith(undefined, 1, 20);
   });
 
-  it("切换知识库时会话历史从第 1 页重取（T157）", async () => {
+  it("切换知识库后全局会话历史保持加载，页码不被知识库重置（T173）", async () => {
     pathname.value = "/conversations";
     search.value = "knowledgeBase=kb-1";
     api.listKnowledgeBases.mockResolvedValue(page([KB_ONE, KB_TWO]));
-    api.listConversations
-      .mockResolvedValueOnce({ items: [CONVERSATION_ONE], page: 1, page_size: 20, total: 21 })
-      .mockResolvedValueOnce({ items: [CONVERSATION_TWO], page: 2, page_size: 20, total: 21 })
-      .mockResolvedValue({ items: [], page: 1, page_size: 20, total: 0 });
+    api.listConversations.mockResolvedValue({
+      items: [CONVERSATION_ONE, CONVERSATION_TWO],
+      page: 1,
+      page_size: 20,
+      total: 21,
+    });
 
     const { rerender } = renderWithProviders(<ConditionalConversationSidebar />);
     await screen.findByText("已有对话");
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
-    await waitFor(() => expect(api.listConversations).toHaveBeenLastCalledWith("kb-1", 2, 20));
+    await waitFor(() => expect(api.listConversations).toHaveBeenLastCalledWith(undefined, 2, 20));
 
-    // URL 切换知识库：以 knowledgeBase 为 key 重挂载，会话页码重置为第 1 页。
+    // 切换知识库只影响新建范围与正文上下文，侧栏全局历史页码保持不变。
     search.value = "knowledgeBase=kb-2";
     rerender(<ConditionalConversationSidebar />);
-    await waitFor(() => expect(api.listConversations).toHaveBeenLastCalledWith("kb-2", 1, 20));
+    expect(await screen.findByText("已有对话")).toBeInTheDocument();
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    expect(api.listConversations).not.toHaveBeenLastCalledWith(undefined, 1, 20);
   });
 
-  it("侧栏会话列表在 URL 恢复的知识库范围内加载", async () => {
+  it("侧栏全局历史不依赖 URL 知识库参数（T173）", async () => {
     search.value = "knowledgeBase=kb-2&conversation=conversation-2";
     readyList([CONVERSATION_TWO]);
 
     renderWithProviders(<ConversationSidebar />);
 
-    expect(api.listConversations).toHaveBeenCalledWith("kb-2", 1, 20);
+    expect(api.listConversations).toHaveBeenCalledWith(undefined, 1, 20);
     expect(await screen.findByText("恢复的对话")).toBeInTheDocument();
   });
 
@@ -455,9 +465,88 @@ describe("会话 mutation 的可恢复错误", () => {
       )
     );
   });
+
+  it("自动发送首条内容被拒时恢复输入，避免提问丢失", async () => {
+    search.value = "knowledgeBase=kb-1";
+    readyList([]);
+    api.createConversation.mockResolvedValue(CONVERSATION_ONE);
+    api.getConversation.mockResolvedValue(CONVERSATION_ONE);
+    api.getKnowledgeBase.mockResolvedValue(KB_ONE);
+    api.listMessages.mockResolvedValue({ items: [], has_more: false, next_before: null });
+    api.streamEvents.mockRejectedValue(apiError("知识库资料尚未处理完成", 20005, 409));
+    navigation.replace.mockImplementation((url: string) => {
+      search.value = url.split("?")[1] ?? "";
+    });
+    const { rerender } = renderWithProviders(<ConversationsWorkspace />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "输入问题" }), {
+      target: { value: "资料准备好了吗？" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() =>
+      expect(api.createConversation).toHaveBeenCalledWith({ knowledge_base_id: "kb-1" })
+    );
+    // 按新 URL 重渲染后 MessageThread 挂载并自动发送首条内容；创建消息前被服务端拒绝。
+    rerender(<ConversationsWorkspace />);
+    await waitFor(() =>
+      expect(api.streamEvents).toHaveBeenCalledWith(
+        "/conversations/conversation-1/messages",
+        expect.objectContaining({ body: { content: "资料准备好了吗？" } })
+      )
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("知识库资料尚未处理完成");
+    // 提问回到输入框而非丢失，修正条件后可重试。
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "输入问题" })).toHaveValue("资料准备好了吗？")
+    );
+  });
+
+  it("新建会话后立即刷新当前知识库的侧栏历史", async () => {
+    search.value = "knowledgeBase=kb-1";
+    api.listKnowledgeBases.mockResolvedValue(page([KB_ONE, KB_TWO]));
+    api.listConversations
+      .mockResolvedValueOnce(page([]))
+      .mockResolvedValueOnce(page([CONVERSATION_ONE]));
+    api.createConversation.mockResolvedValue(CONVERSATION_ONE);
+    api.getKnowledgeBase.mockResolvedValue(KB_ONE);
+
+    renderWithProviders(
+      <>
+        <ConversationSidebar />
+        <ConversationsWorkspace />
+      </>
+    );
+
+    await screen.findByText("尚无对话");
+    fireEvent.change(screen.getByRole("textbox", { name: "输入问题" }), {
+      target: { value: "创建后应出现" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("已有对话")).toBeInTheDocument();
+    expect(api.listConversations).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("阶段 13 消息即时体验（T155/T159）", () => {
+  it("服务器在创建消息前拒绝时，撤销临时消息并恢复输入", async () => {
+    api.listMessages.mockResolvedValue({ items: [], has_more: false, next_before: null });
+    api.streamEvents.mockRejectedValue(apiError("知识库资料尚未处理完成", 20005, 409));
+    renderWithProviders(<MessageThread conversationId="conversation-1" />);
+
+    const input = screen.getByRole("textbox", { name: "输入问题" });
+    fireEvent.change(input, { target: { value: "资料准备好了吗？" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("知识库资料尚未处理完成");
+    await waitFor(() =>
+      expect(screen.queryByRole("article", { name: "你" })).not.toBeInTheDocument()
+    );
+    expect(input).toHaveValue("资料准备好了吗？");
+  });
+
   it("用户消息为右侧紧凑气泡、助手为左侧无边框正文（T159）", async () => {
     api.listMessages.mockResolvedValue({
       items: [
@@ -669,5 +758,90 @@ describe("消息加载与输入", () => {
         expect.objectContaining({ body: { content: "发送这个问题" } })
       )
     );
+  });
+});
+
+describe("阶段 16 全局会话历史（T171）", () => {
+  it("未选择知识库时仍直接分页展示全局历史", async () => {
+    search.value = "";
+    api.listConversations.mockResolvedValue(page([CONVERSATION_ONE, CONVERSATION_TWO], 2));
+    renderWithProviders(<ConversationSidebar />);
+
+    expect(await screen.findByText("已有对话")).toBeInTheDocument();
+    expect(screen.getByText("恢复的对话")).toBeInTheDocument();
+    expect(api.listConversations).toHaveBeenCalledWith(undefined, 1, 20);
+    expect(screen.queryByText("请先选择知识库")).not.toBeInTheDocument();
+  });
+
+  it("会话行显示所属知识库名称标签", async () => {
+    search.value = "";
+    const named = conversation("conversation-3", "kb-2", null, "客户访谈");
+    api.listConversations.mockResolvedValue(page([named], 1));
+    renderWithProviders(<ConversationSidebar />);
+
+    expect(await screen.findByText("客户访谈")).toBeInTheDocument();
+    // 空标题显示固定默认文案“未命名对话”。
+    expect(screen.getByText("未命名对话")).toBeInTheDocument();
+  });
+
+  it("点击其他知识库的历史会话直接恢复绑定 URL 上下文", async () => {
+    search.value = "";
+    api.listConversations.mockResolvedValue(page([CONVERSATION_TWO], 1));
+    renderWithProviders(<ConversationSidebar />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "打开对话 恢复的对话" }));
+
+    expect(navigation.push).toHaveBeenCalledWith(
+      "/conversations?knowledgeBase=kb-2&conversation=conversation-2"
+    );
+  });
+
+  it("全局历史支持跨知识库分页", async () => {
+    search.value = "";
+    api.listConversations.mockResolvedValueOnce(page([CONVERSATION_ONE, CONVERSATION_TWO], 21));
+    api.listConversations.mockResolvedValueOnce(page([CONVERSATION_ONE], 21));
+    renderWithProviders(<ConversationSidebar />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "下一页" }));
+    expect(await screen.findByText("2 / 2")).toBeInTheDocument();
+    expect(api.listConversations).toHaveBeenLastCalledWith(undefined, 2, 20);
+  });
+
+  it("删除当前会话后回到无知识库的全局列表", async () => {
+    search.value = "conversation=conversation-1";
+    api.listConversations.mockResolvedValue(page([CONVERSATION_ONE], 1));
+    api.deleteConversation.mockResolvedValue(undefined);
+    renderWithProviders(<ConversationSidebar />);
+
+    await screen.findByRole("button", { name: "会话操作 已有对话" });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "会话操作 已有对话" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => expect(api.deleteConversation).toHaveBeenCalledWith("conversation-1"));
+    expect(navigation.replace).toHaveBeenCalledWith("/conversations");
+  });
+
+  it("重命名后精确刷新全局历史", async () => {
+    search.value = "";
+    api.listConversations
+      .mockResolvedValueOnce(page([CONVERSATION_ONE], 1))
+      .mockResolvedValueOnce(page([conversation("conversation-1", "kb-1", "已重命名")], 1));
+    api.renameConversation.mockResolvedValue(conversation("conversation-1", "kb-1", "已重命名"));
+    renderWithProviders(<ConversationSidebar />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "会话操作 已有对话" }));
+    await user.click(screen.getByRole("menuitem", { name: "重命名" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "新标题" }), {
+      target: { value: "已重命名" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存标题" }));
+
+    await waitFor(() => expect(api.renameConversation).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("已重命名")).toBeInTheDocument();
+    // 全局列表被精确失效并重新拉取。
+    await waitFor(() => expect(api.listConversations).toHaveBeenCalledTimes(2));
   });
 });

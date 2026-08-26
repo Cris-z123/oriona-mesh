@@ -31,13 +31,14 @@ class ConversationService:
     # ------------------------------------------------------------------
     def create(
         self, user_id: uuid.UUID, knowledge_base_id: uuid.UUID, title: str | None = None
-    ) -> Conversation:
+    ) -> tuple[Conversation, str]:
         # 对话只能绑定 active 知识库（deleting/delete_failed 隐藏，20002/404）。
-        require_active_knowledge_base(self.session, knowledge_base_id, user_id)
-        return self.repository.create(user_id, knowledge_base_id, title)
+        kb = require_active_knowledge_base(self.session, knowledge_base_id, user_id)
+        return self.repository.create(user_id, knowledge_base_id, title), kb.name
 
-    def get(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> Conversation:
-        return self.repository.get_for_user(conversation_id, user_id)
+    def get(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> tuple[Conversation, str]:
+        conv = self.repository.get_for_user(conversation_id, user_id)
+        return conv, self.repository.knowledge_base_name_for(user_id, conv.knowledge_base_id)
 
     def list_conversations(
         self,
@@ -46,7 +47,7 @@ class ConversationService:
         page: int,
         page_size: int,
         knowledge_base_id: uuid.UUID | None = None,
-    ) -> tuple[list[Conversation], int]:
+    ) -> tuple[list[tuple[Conversation, str]], int]:
         return self.repository.list_for_user(
             user_id,
             page=page,
@@ -54,8 +55,11 @@ class ConversationService:
             knowledge_base_id=knowledge_base_id,
         )
 
-    def rename(self, user_id: uuid.UUID, conversation_id: uuid.UUID, title: str) -> Conversation:
-        return self.repository.rename(conversation_id, user_id, title)
+    def rename(
+        self, user_id: uuid.UUID, conversation_id: uuid.UUID, title: str
+    ) -> tuple[Conversation, str]:
+        conv = self.repository.rename(conversation_id, user_id, title)
+        return conv, self.repository.knowledge_base_name_for(user_id, conv.knowledge_base_id)
 
     def delete(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> None:
         self.repository.delete(conversation_id, user_id)

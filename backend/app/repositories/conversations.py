@@ -18,6 +18,7 @@ from app.api.middleware.errors import ApiError
 from app.api.v1.schemas.common import RESOURCE_NOT_FOUND_MSG
 from app.models.conversation import Conversation, Message, MessageCitation
 from app.models.enums import MessageRole, MessageStatus
+from app.models.knowledge_base import KnowledgeBase
 
 
 @dataclass(frozen=True)
@@ -58,19 +59,45 @@ class ConversationRepository:
         page: int,
         page_size: int,
         knowledge_base_id: uuid.UUID | None = None,
-    ) -> tuple[list[Conversation], int]:
+    ) -> tuple[list[tuple[Conversation, str]], int]:
+        """当前用户范围的全局分页列表（T172 / FR-013）。
+
+        - ``knowledge_base_id`` 可选：省略时在全部会话范围分页，提供时才限缩为
+          已授权知识库；total 均在该范围内计算；
+        - 每行经同一已授权连接（``knowledge_bases.user_id == user_id``）投影
+          ``knowledge_base_name``，不新增持久化列；
+        - 按最近活动排序：``updated_at DESC, created_at DESC``（创建、重命名、
+          收消息都会刷新 updated_at）。
+        """
         filters = [Conversation.user_id == user_id]
         if knowledge_base_id is not None:
             filters.append(Conversation.knowledge_base_id == knowledge_base_id)
         total = self.session.scalar(select(func.count()).select_from(Conversation).where(*filters))
-        rows = self.session.scalars(
-            select(Conversation)
+        rows = self.session.execute(
+            select(Conversation, KnowledgeBase.name)
+            .join(
+                KnowledgeBase,
+                (KnowledgeBase.id == Conversation.knowledge_base_id)
+                & (KnowledgeBase.user_id == user_id),
+            )
             .where(*filters)
-            .order_by(Conversation.created_at.desc())
+            .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
-        return list(rows), int(total or 0)
+        return [(conv, name) for conv, name in rows], int(total or 0)
+
+    def knowledge_base_name_for(self, user_id: uuid.UUID, knowledge_base_id: uuid.UUID) -> str:
+        """以当前用户授权范围投影会话绑定知识库的显示名称（T172 / FR-013）。"""
+        name = self.session.scalar(
+            select(KnowledgeBase.name).where(
+                KnowledgeBase.id == knowledge_base_id,
+                KnowledgeBase.user_id == user_id,
+            )
+        )
+        if name is None:
+            raise ApiError(20007, RESOURCE_NOT_FOUND_MSG, 404)
+        return name
 
     def create(
         self, user_id: uuid.UUID, knowledge_base_id: uuid.UUID, title: str | None = None

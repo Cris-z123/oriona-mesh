@@ -32,9 +32,9 @@ import { useUiStore } from "@/stores/ui-store";
 const PAGE_SIZE = 20;
 
 /**
- * 对话工作区会话历史侧栏（T157，ui-design §3.1）：仅承载明确选定知识库的
- * 会话历史列表（分页），操作（重命名/删除）收进扩展菜单。
- * 必须由 URL 中明确的知识库驱动——无明确知识库时不呈现，绝不回退猜测。
+ * 对话工作区会话历史侧栏（T157/T173，ui-design §3.1）：始终承载当前用户的
+ * 全局会话历史（分页，跨知识库），每行展示所属知识库名称；重命名/删除收进
+ * 扩展菜单。知识库是回答与新对话的必选边界，但不是浏览本人历史的前置条件。
  */
 export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const router = useRouter();
@@ -50,18 +50,17 @@ export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void })
   const [retry, setRetry] = useState<(() => void) | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
-  // 知识库真相源是 URL（由主内容区顶部选择器维护）；无明确参数时不猜测。
-  const activeKnowledgeBaseId = urlKnowledgeBaseId;
+  // 全局历史不依赖 URL 知识库参数；正文顶部的选择器只决定新建对话范围。
   const conversations = useQuery({
-    queryKey: queryKeys.conversations(activeKnowledgeBaseId, page, PAGE_SIZE),
-    queryFn: () => listConversations(activeKnowledgeBaseId, page, PAGE_SIZE),
-    enabled: Boolean(activeKnowledgeBaseId),
+    queryKey: queryKeys.conversationsGlobal(page, PAGE_SIZE),
+    queryFn: () => listConversations(undefined, page, PAGE_SIZE),
   });
   const invalidate = () =>
     void queryClient.invalidateQueries({ queryKey: queryKeys.conversationsAll() });
 
   const openConversation = (conversation: Conversation) => {
     closeCitationDrawer();
+    // 原子恢复会话及其绑定知识库的 URL 上下文，不触发正文顶部选择器的确认。
     router.push(
       `/conversations?knowledgeBase=${conversation.knowledge_base_id}&conversation=${conversation.id}`
     );
@@ -85,7 +84,12 @@ export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void })
       closeCitationDrawer();
       notify("已删除");
       if (id === conversationId) {
-        router.replace(`/conversations?knowledgeBase=${activeKnowledgeBaseId}`);
+        // 删除当前会话后回到全局历史；保留 URL 知识库参数可继续在该范围新建对话。
+        router.replace(
+          urlKnowledgeBaseId
+            ? `/conversations?knowledgeBase=${urlKnowledgeBaseId}`
+            : "/conversations"
+        );
       }
     },
   });
@@ -112,12 +116,7 @@ export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void })
           onRetry={retry ?? (() => void conversations.refetch())}
         />
       ) : null}
-      {!activeKnowledgeBaseId ? (
-        <EmptyState
-          title="请先选择知识库"
-          description="在主内容区顶部选择知识库后，显示该知识库的会话历史。"
-        />
-      ) : conversations.isLoading ? (
+      {conversations.isLoading ? (
         <Skeleton className="h-32 w-full" aria-label="正在加载对话" />
       ) : conversations.isError ? null : items.length === 0 ? (
         <EmptyState title="尚无对话" description="在主内容区输入内容，即可开始新对话。" />
@@ -153,7 +152,13 @@ export function ConversationSidebar({ onNavigate }: { onNavigate?: () => void })
                     aria-label={`打开对话 ${conversation.title || "未命名对话"}`}
                     onClick={() => openConversation(conversation)}
                   >
-                    <span className="truncate">{conversation.title || "未命名对话"}</span>
+                    <span className="flex min-w-0 flex-col items-start">
+                      <span className="truncate">{conversation.title || "未命名对话"}</span>
+                      {/* 所属知识库名称（T172 授权投影）作为次级标签。 */}
+                      <span className="truncate text-xs text-muted-foreground">
+                        {conversation.knowledge_base_name}
+                      </span>
+                    </span>
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
