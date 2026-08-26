@@ -105,9 +105,9 @@ describe("US3 任务诊断与资料删除", () => {
     expect(screen.getByText(/尝试 1/)).toBeInTheDocument();
     expect(screen.getByText(/尝试 4/)).toBeInTheDocument();
     expect(screen.getByText(/worker-a/)).toBeInTheDocument();
-    expect(screen.getByText(/29000 ms/)).toBeInTheDocument();
+    expect(screen.getByText(/29 秒/)).toBeInTheDocument();
     expect(screen.getByText(/worker-b/)).toBeInTheDocument();
-    expect(screen.getByText(/30000 ms/)).toBeInTheDocument();
+    expect(screen.getByText(/30 秒/)).toBeInTheDocument();
 
     expect(
       screen.queryByRole("button", { name: /重新处理|重试处理|替换/ })
