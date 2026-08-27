@@ -572,6 +572,17 @@ MVP 仍需继续完成 T060–T105 后再进入前端。
 - [x] T180 [US4] 移除 `frontend/src/app/knowledge-bases/page.tsx`、`frontend/src/features/knowledge-bases/KnowledgeBaseList.tsx`、`frontend/src/features/conversations/ConversationsWorkspace.tsx` 的重复页头或重复入口，修正 `frontend/src/components/app-shell/AppShell.tsx` 与 `frontend/src/components/app-shell/WorkspaceNav.tsx` 的阶段 16 后过期注释，并更新受影响回归测试。
 - [x] T181 [US2] 先在 `frontend/tests/component/core-conversation-workflow.test.tsx` 添加无外框连续历史列表、当前会话矿物青左侧标记与条目操作可访问性的回归测试，再更新 `frontend/src/features/conversations/ConversationSidebar.tsx`；不得改变全局分页、URL 恢复、重命名或删除语义。
 
+### 阶段 18：安全解析运行时兼容性
+
+**目标**：修复安全解析在 Celery prefork daemon worker 中不能启动的问题，同时保留独立进程隔离、强制超时与既有错误码；消除 worker control healthcheck 的广播等待误判。
+
+- [x] T182 对齐 `spec.md`、`plan.md`、`data-model.md`、`research.md`、`tasks.md`、`quickstart.md` 与需求检查清单：冻结 OS 子进程 runner、受限协议、`20001/20010` 收敛、正式 prefork 保留与定向 control ping。
+- [x] T183 [P] 先在 `backend/tests/unit/services/parsers/test_document_parsers.py` 添加 daemon parent 下可成功解析、超时强制收敛与未知 parser 异常稳定收敛的失败回归测试；不得切换 worker pool 或弱化超时边界。
+- [x] T184 [P] 在 `backend/tests/integration/test_delivery_stack.py` 锁定 worker 健康检查的当前节点 `--destination`、有界 control timeout、Docker health timeout 与 start period，防止恢复为广播 ping。
+- [x] T185 实现 `backend/app/services/parsers/runner.py` 与 `backend/app/services/parsers/security.py` 的受限 stdin/stdout 协议和子进程回收；在 `backend/app/workers/document_parse.py` 对执行边界的未知异常记录不含资料内容的结构化类型信息。
+- [x] T186 更新 `deploy/compose/compose.yaml` 的定向 worker healthcheck，运行解析、资料流水线、交付栈与质量验证，并将实际结果记录在 `quickstart.md`。
+- [x] T187 处理阶段 18 代码审查清理：移除已废弃的 `ParseError.__reduce__` multiprocessing/pickle 遗留，统一复用 `base.parse_failed()`，并将四类解析器的权威解析边界引用统一为 `data-model.md`。
+
 ## 备注
 
 - `[P]` 仅表示不同文件且不依赖同一未完成输出；不改变 T091/T105 的后端先行门禁。

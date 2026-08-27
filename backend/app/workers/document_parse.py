@@ -112,7 +112,12 @@ def process_parse(
             error_message=exc.message,
         )
         return
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "parse_worker_execution_failed",
+            attempt_id=str(attempt.id),
+            error_type=type(exc).__name__,
+        )
         session.rollback()
         orchestrator.fail_stage(
             attempt_id=attempt.id,

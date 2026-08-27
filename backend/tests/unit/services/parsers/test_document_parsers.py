@@ -6,6 +6,7 @@
 """
 
 import io
+import multiprocessing
 import time
 import zipfile
 
@@ -13,8 +14,8 @@ import pytest
 
 from app.models.enums import FileType
 from app.services.parsers import get_parser
-from app.services.parsers.base import ParseError
-from app.services.parsers.security import parse_safely
+from app.services.parsers.base import ParseError, ParseOutput
+from app.services.parsers.security import _parse_response, parse_safely
 
 pytestmark = pytest.mark.unit
 
@@ -27,7 +28,7 @@ _CODE_PARSE = 20001
 class SlowParser:
     """超时用例解析器：必须为模块级类（parse_safely 在子进程中按类引用重建）。"""
 
-    def parse(self, content: bytes):
+    def parse(self, content: bytes, *, max_expanded_bytes: int | None = None):
         time.sleep(5)
         raise AssertionError("should not complete")
 
@@ -35,8 +36,19 @@ class SlowParser:
 class ExplodingParser:
     """未知异常用例解析器：模块级类，子进程内抛错应映射为 20001。"""
 
-    def parse(self, content: bytes):
+    def parse(self, content: bytes, *, max_expanded_bytes: int | None = None):
         raise ValueError("boom")
+
+
+class OversizedOutputParser:
+    """验证 runner 不会把超过解析展开上限的结果送回父 worker。"""
+
+    def parse(self, content: bytes, *, max_expanded_bytes: int | None = None) -> ParseOutput:
+        return ParseOutput(
+            normalized_text="01234567890",
+            parser_name="oversized-test",
+            parser_version="1",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +195,50 @@ class TestEmptyAndCorrupt:
 
 
 class TestSecurityLimits:
+    def test_malformed_runner_response_maps_to_20001(self) -> None:
+        with pytest.raises(ParseError) as exc:
+            _parse_response(b'{"status":"result"}\nnot-a-validated-result')
+
+        assert exc.value.code == _CODE_PARSE
+
+    def test_parse_runs_when_parent_is_daemon(self) -> None:
+        """Celery prefork child 也是 daemon，安全 runner 必须仍可启动。"""
+        process = multiprocessing.current_process()
+        was_daemon = process.daemon
+        process.daemon = True
+        try:
+            result = parse_safely(
+                get_parser(FileType.TXT),
+                b"prefork daemon compatible",
+                timeout_seconds=10,
+                max_expanded_bytes=10**9,
+            )
+        finally:
+            process.daemon = was_daemon
+
+        assert result.normalized_text == "prefork daemon compatible"
+
+    def test_runner_preserves_page_count_metadata(self) -> None:
+        result = parse_safely(
+            get_parser(FileType.PDF),
+            _make_pdf("page metadata"),
+            timeout_seconds=10,
+            max_expanded_bytes=10**9,
+        )
+
+        assert result.page_count == 1
+
+    def test_oversized_runner_output_maps_to_20001(self) -> None:
+        with pytest.raises(ParseError) as exc:
+            parse_safely(
+                OversizedOutputParser(),  # type: ignore[arg-type]
+                b"x",
+                timeout_seconds=10,
+                max_expanded_bytes=10,
+            )
+
+        assert exc.value.code == _CODE_PARSE
+
     def test_docx_zip_bomb_rejected_by_expanded_size(self) -> None:
         # 构造解压后远超上限的合法 docx 结构。
         buf = io.BytesIO()

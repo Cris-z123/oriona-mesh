@@ -121,7 +121,12 @@ class TestComposeDeploymentContract:
         command = " ".join(healthcheck["test"])
         assert "celery" in command
         assert "inspect ping" in command
+        assert "--destination" in command
+        assert "celery@$$(hostname)" in command
+        assert "--timeout=2" in command
         assert "pong" in command
+        assert healthcheck["timeout"] == "10s"
+        assert healthcheck["start_period"] == "20s"
 
     def test_shared_named_volume_mounted_on_api_and_worker(self) -> None:
         compose = _load_compose()

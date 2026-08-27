@@ -27,11 +27,6 @@ class ParseError(Exception):
         self.message = message
         super().__init__(message)
 
-    def __reduce__(self) -> tuple:
-        # Exception.__reduce__ 用 self.args 重建会丢失 code（args 只有 message）；
-        # 显式携带双参，保证解析异常能跨进程（子进程解析）重建。
-        return (type(self), (self.code, self.message))
-
 
 class DocumentParser(Protocol):
     """解析器端口；``max_expanded_bytes`` 由安全包装按配置传入。"""

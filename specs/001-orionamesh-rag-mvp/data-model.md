@@ -176,7 +176,7 @@
 - 上传重放：同一 `user_id + knowledge_base_id + Idempotency-Key` 命中 `accepted/failed` 请求时返回首次已收敛快照，不重复创建资料、任务或文件对象；命中未超时 `coordinating` 请求时返回 `20008/409` 且不产生副作用；命中超时请求时获取批次锁并调用与扫描器相同的幂等协调函数接管。未提供该键时，每次上传都创建独立资料。
 - 处理并发：资料首次进入 `processing` 时通过数据库事务按 `user_id` 原子获取最多 3 个（可配置）的资料级名额；名额跨 parse、chunk、embed、finalize 持有。恢复扫描器对超时 lease 与 `running` 任务加锁，关闭活动 attempt 并释放名额；有重试预算则把任务恢复为 `queued`，否则使任务和资料明确失败。Redis/Celery 不得作为名额真相源。
 - 阶段切换：worker 不得自行拼接下一阶段。统一编排器在一个事务内锁定并校验当前 attempt、task、document 和 lease，把 attempt/task 标为 `succeeded`，按阶段幂等键创建或激活下一任务，更新 `documents.current_task_type` 与 `lease.task_id` 后提交；只在提交后投递 Celery。投递失败时下一任务仍为数据库中的 `queued`，由恢复扫描器重投。`finalize` 成功则在同一事务完成资料状态翻转并释放处理名额，旧版本 `cleanup` 独立排队且不影响当前版本可见性。
-- 解析边界：PDF/DOCX/MD/TXT 分别使用已锁定的解析器；不得执行宏、脚本、外部链接或嵌入对象，并限制解析时长、归档条目数和解压后大小。标准化文本为空时资料和任务以 `20010` 收敛为 `failed`。
+- 解析边界：PDF/DOCX/MD/TXT 分别使用已锁定的解析器；不得执行宏、脚本、外部链接或嵌入对象，并限制解析时长、归档条目数和解压后大小。解析包装器以独立操作系统子进程运行，并以受限的字节协议传递解析器引用、原始内容与标准化结果；该机制必须可由 Celery prefork daemon worker 启动，超时后强制回收。启动、通信、协议或未知解析异常以 `20001` 收敛，标准化文本为空时资料和任务以 `20010` 收敛为 `failed`。
 - 片段读取：`ChunkRepository` 提供两类显式方法；检索方法必须 `JOIN documents` 并过滤当前 `user_id`、`knowledge_base_id`、`documents.status = completed` 和 `chunks.document_version = documents.version`；流水线内部计数/校验方法必须过滤当前 `user_id`、`knowledge_base_id`、`document_id` 和精确 `document_version`，不得复用于用户查询。
 - 证据门槛：`ChunkRepository` 的向量检索仅返回余弦相似度不低于 `RETRIEVAL_VECTOR_MIN_SIMILARITY`（默认 `0.65`）的候选；关键词检索仅返回 pg_trgm 相似度不低于 `RETRIEVAL_TRGM_MIN_SIMILARITY`（默认 `0.30`）的候选。RRF、重排和 Context Pack 只能消费通过门槛的候选；融合后为空时问答服务直接可信拒答，不调用生成模型。
 - `finalize`：不搬运或复制片段；仅通过流水线内部仓储方法校验正式片段数、版本和任务结果一致后，把资料标记为 `completed` 并更新 `chunk_count`；否则以 `20013` 将任务和资料收敛为失败，未发布片段仍不可被检索。

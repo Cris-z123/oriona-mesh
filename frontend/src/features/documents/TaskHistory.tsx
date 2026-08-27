@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTasks } from "@/features/documents/queries";
+import { formatDateTime, formatDuration } from "@/lib/format";
 import type {
   DocumentTask,
   DocumentTaskAttemptStatus,
@@ -92,9 +93,9 @@ function TaskHistoryContent({ tasks }: { tasks: readonly DocumentTask[] }) {
                   ? `已处理 ${task.processed_items} 项`
                   : `${task.processed_items} / ${task.total_items}`}
               </span>
-              {task.queued_at ? <span>排队：{task.queued_at}</span> : null}
-              {task.started_at ? <span>开始：{task.started_at}</span> : null}
-              {task.finished_at ? <span>结束：{task.finished_at}</span> : null}
+              {task.queued_at ? <span>排队：{formatDateTime(task.queued_at)}</span> : null}
+              {task.started_at ? <span>开始：{formatDateTime(task.started_at)}</span> : null}
+              {task.finished_at ? <span>结束：{formatDateTime(task.finished_at)}</span> : null}
             </div>
             {task.error_code !== null && task.error_message ? (
               <p className="mt-2 text-destructive">
@@ -111,11 +112,17 @@ function TaskHistoryContent({ tasks }: { tasks: readonly DocumentTask[] }) {
                     <p>
                       尝试 {attempt.attempt_no} · {attemptStatusLabel[attempt.status]} ·{" "}
                       {attempt.worker_name ?? "未标识 worker"}
-                      {attempt.duration_ms === null ? "" : ` · ${attempt.duration_ms} ms`}
+                      {attempt.duration_ms === null
+                        ? ""
+                        : ` · ${formatDuration(attempt.duration_ms)}`}
                     </p>
-                    <p className="text-muted-foreground">开始：{attempt.started_at}</p>
+                    <p className="text-muted-foreground">
+                      开始：{formatDateTime(attempt.started_at)}
+                    </p>
                     {attempt.finished_at ? (
-                      <p className="text-muted-foreground">结束：{attempt.finished_at}</p>
+                      <p className="text-muted-foreground">
+                        结束：{formatDateTime(attempt.finished_at)}
+                      </p>
                     ) : null}
                     {attempt.error_message ? (
                       <p className="text-destructive">{attempt.error_message}</p>

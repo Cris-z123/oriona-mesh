@@ -30,3 +30,14 @@ export function formatDateTime(value: string | null | undefined): string {
     minute: "2-digit",
   });
 }
+
+/** 面向用户的时长；小于 1 秒显示毫秒，其余按秒/分展示。 */
+export function formatDuration(value: number | null | undefined): string {
+  if (value == null || value < 0) return "—";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  const seconds = value / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = Math.round(seconds % 60);
+  return restSeconds === 0 ? `${minutes} 分` : `${minutes} 分 ${restSeconds} 秒`;
+}

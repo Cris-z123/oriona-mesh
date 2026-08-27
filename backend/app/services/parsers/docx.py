@@ -1,4 +1,4 @@
-"""python-docx DOCX 解析器（T051 / quickstart 解析边界）。
+"""python-docx DOCX 解析器（T051 / data-model.md 解析边界）。
 
 - 先以 zipfile 审查归档：条目数与解压后总大小上限（压缩炸弹/洪泛防护）；
 - python-docx 只解析 OOXML 文本；不执行宏（vbaProject 内容不被解释）、

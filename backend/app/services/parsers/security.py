@@ -1,35 +1,34 @@
 """统一安全解析包装（T051 / data-model.md 解析边界）。
 
-- 解析在独立子进程（``spawn`` 上下文）中执行：超时后终止子进程，恶意或异常
-  文件无法越过解析时长边界持续占用 CPU/内存（线程无法被强制终止，仅收敛状态
-  会绕过资源边界）；超时收敛为 ``20001``；
-- 解析器对象只以 ``module.QualName`` 描述跨进程传递，子进程内零参重建，不
-  携带解析器实例状态；仅支持模块级、可无参构造的解析器类；
-- 空/纯空白标准化文本收敛为 ``20010 EMPTY_DOCUMENT``，不得进入分块阶段；
-- 解析器未知异常统一映射 ``20001`` 固定安全提示，不泄漏内部细节。
+解析器在独立的操作系统子进程中运行。Celery prefork worker 本身是 daemon
+进程，不能再用 ``multiprocessing.Process`` 创建子进程；此处改用
+``subprocess.Popen`` 启动无状态 runner，保留解析时长的硬边界而不降低 worker
+并发模型。
+
+父进程和 runner 仅交换一行 JSON 元数据及原始字节：不通过 pickle 传递 Python
+对象、异常或解析器状态。任何启动、通信或协议异常都收敛为稳定 ``20001``。
 """
 
 import importlib
-import multiprocessing
-from queue import Empty
+import json
+import subprocess
+import sys
 from typing import Any
 
 from app.services.parsers.base import (
     EMPTY_DOC_CODE,
     EMPTY_DOC_MSG,
-    PARSE_FAILED_CODE,
-    PARSE_FAILED_MSG,
     ParseError,
     ParseOutput,
     parse_failed,
 )
 
-# 终止子进程后等待其回收的上限。
+# 子进程收到 kill 后等待回收的上限；正常解析的时长由调用方配置控制。
 _PROCESS_TERMINATE_GRACE_SECONDS = 10.0
 
 
 def _parser_ref(parser: Any) -> str:
-    """把解析器实例序列化为模块级类引用（子进程内可重建）。"""
+    """把解析器实例编码为可在 runner 内零参重建的模块级类引用。"""
     cls = type(parser)
     if cls.__module__ == "__main__" or cls.__qualname__ != cls.__name__:
         raise ValueError(f"parser must be a module-level class: {cls!r}")
@@ -37,27 +36,80 @@ def _parser_ref(parser: Any) -> str:
 
 
 def _load_parser(ref: str) -> Any:
-    """在子进程内按模块级类引用重建解析器实例。"""
+    """按模块级类引用重建解析器；仅供隔离 runner 调用。"""
     module_name, _, class_name = ref.rpartition(".")
+    if not module_name or not class_name:
+        raise ValueError("invalid parser reference")
     module = importlib.import_module(module_name)
     return getattr(module, class_name)()
 
 
-def _parse_child(parser_ref: str, content: bytes, max_expanded_bytes: int | None, queue) -> None:
-    """子进程执行体：重建解析器 → 解析 → 单次投递结果或稳定错误。"""
-    parser = _load_parser(parser_ref)
+def _encode_request(parser_ref: str, content: bytes, max_expanded_bytes: int) -> bytes:
+    metadata = json.dumps(
+        {"parser_ref": parser_ref, "max_expanded_bytes": max_expanded_bytes},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return metadata + b"\n" + content
+
+
+def _parse_response(payload: bytes) -> ParseOutput:
+    header, separator, normalized_bytes = payload.partition(b"\n")
+    if not separator:
+        raise parse_failed()
     try:
-        result = parser.parse(content, max_expanded_bytes=max_expanded_bytes)
-    except ParseError as exc:
-        queue.put(("error", exc))
-    except Exception:
-        queue.put(("error", parse_failed()))
-    else:
-        queue.put(("result", result))
-    finally:
-        # 等待 feeder 线程把结果刷入管道，父进程 get() 不会因进程退出丢数据。
-        queue.close()
-        queue.join_thread()
+        metadata = json.loads(header)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise parse_failed() from None
+    if not isinstance(metadata, dict):
+        raise parse_failed()
+
+    status = metadata.get("status")
+    if status == "error":
+        if metadata.get("code") == EMPTY_DOC_CODE:
+            raise ParseError(EMPTY_DOC_CODE, EMPTY_DOC_MSG)
+        raise parse_failed()
+    if status != "result":
+        raise parse_failed()
+
+    parser_name = metadata.get("parser_name")
+    parser_version = metadata.get("parser_version")
+    content_bytes = metadata.get("content_bytes")
+    page_count = metadata.get("page_count")
+    if (
+        not isinstance(parser_name, str)
+        or not parser_name
+        or not isinstance(parser_version, str)
+        or not parser_version
+        or not isinstance(content_bytes, int)
+        or content_bytes < 0
+        or content_bytes != len(normalized_bytes)
+        or (page_count is not None and (not isinstance(page_count, int) or page_count < 0))
+    ):
+        raise parse_failed()
+    try:
+        normalized_text = normalized_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        raise parse_failed() from None
+    return ParseOutput(
+        normalized_text=normalized_text,
+        parser_name=parser_name,
+        parser_version=parser_version,
+        page_count=page_count,
+    )
+
+
+def _kill_and_reap(proc: subprocess.Popen[bytes]) -> None:
+    """强制终止超时 runner，并在有限时间内回收其进程句柄。"""
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+    try:
+        proc.communicate(timeout=_PROCESS_TERMINATE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        # kill 后仍不能回收属于运行环境异常；对调用方维持相同稳定错误。
+        raise parse_failed() from None
 
 
 def parse_safely(
@@ -67,31 +119,31 @@ def parse_safely(
     timeout_seconds: float,
     max_expanded_bytes: int,
 ) -> ParseOutput:
-    """在超时与安全限制下执行解析；失败统一收敛为稳定业务错误。"""
-    ctx = multiprocessing.get_context("spawn")
-    queue = ctx.Queue()
-    proc = ctx.Process(
-        target=_parse_child,
-        args=(_parser_ref(parser), content, max_expanded_bytes, queue),
-    )
-    proc.daemon = True
-    proc.start()
+    """在独立 runner 中安全解析，超时和内部异常收敛为稳定业务错误。"""
     try:
-        # 先取结果再回收进程：子进程写入大结果时 feeder 会阻塞在管道缓冲上
-        # （先 join 后 get 会死锁），get 等待时长即解析时长上限，与 join 语义一致。
-        status, value = queue.get(timeout=timeout_seconds)
-    except (Empty, EOFError):
-        # 超时（或子进程未投递即退出，如被系统杀死）：终止解析子进程，硬性
-        # 回收 CPU/内存后收敛 20001（daemon 线程无法被强制终止，会让恶意文件
-        # 绕过解析时长资源边界）。
-        if proc.is_alive():
-            proc.terminate()
-        proc.join(_PROCESS_TERMINATE_GRACE_SECONDS)
-        raise ParseError(PARSE_FAILED_CODE, PARSE_FAILED_MSG) from None
-    proc.join(_PROCESS_TERMINATE_GRACE_SECONDS)
-    if status == "error":
-        raise value
-    result = value
+        request = _encode_request(_parser_ref(parser), content, max_expanded_bytes)
+    except (TypeError, ValueError):
+        raise parse_failed() from None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "app.services.parsers.runner"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except OSError:
+        raise parse_failed() from None
+
+    try:
+        response, _ = proc.communicate(request, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        _kill_and_reap(proc)
+        raise parse_failed() from None
+
+    if proc.returncode != 0:
+        raise parse_failed()
+    result = _parse_response(response)
     if not result.normalized_text or not result.normalized_text.strip():
         raise ParseError(EMPTY_DOC_CODE, EMPTY_DOC_MSG)
     return result

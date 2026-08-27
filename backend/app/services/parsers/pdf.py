@@ -1,4 +1,4 @@
-"""PyMuPDF PDF 解析器（T051 / quickstart 解析边界）。
+"""PyMuPDF PDF 解析器（T051 / data-model.md 解析边界）。
 
 只提取文本层；不执行任何嵌入脚本/动作（PyMuPDF 打开时不执行 JavaScript、
 表单动作或外部引用）。

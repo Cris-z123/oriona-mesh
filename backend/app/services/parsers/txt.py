@@ -1,4 +1,4 @@
-"""charset-normalizer 纯文本解析器（T051 / quickstart 解析边界）。
+"""charset-normalizer 纯文本解析器（T051 / data-model.md 解析边界）。
 
 - 自动检测编码（UTF-8/UTF-16 等）；检测失败映射 ``20001``；
 - 去除 UTF-8 BOM；不读取任何本地路径或发起外部请求。
