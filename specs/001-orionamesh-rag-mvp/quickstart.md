@@ -46,7 +46,7 @@
   以 `--no-build --pull never` 更新 API/worker/前端并等待健康检查；Nginx 与 PostgreSQL/Redis
   同属基础设施，本机缺失时允许拉取（`--pull missing`）。迁移失败时脚本退出，不更新应用服务。
 - worker 的健康不只表示容器进程存活：Compose 通过 Celery control ping 验证其能经 Redis 响应控制
-  消息。部署完成后可运行 `sudo docker exec orionamesh-worker-1 celery -A app.workers.celery_app inspect ping --timeout=5`
+  消息，并且只探测当前容器节点。部署完成后可运行 `sudo docker exec orionamesh-worker-1 sh -c 'celery -A app.workers.celery_app inspect ping --destination "celery@$(hostname)" --timeout=2'`
   复核，输出必须包含 `pong`；该命令直接在运行容器内执行，不依赖临时 Release 目录中的 `release.env`。
 - 回滚使用上一 GitHub Release 的镜像归档；镜像回滚不会自动降级数据库。破坏性迁移发布前必须先
   人工备份，失败时停止发布并按备份恢复。
@@ -92,6 +92,14 @@ skipped 为 `RUN_DELIVERY_SMOKE=1` 门控的完整 Compose 冒烟）。
   Python，因此无法在本机运行 Pyright；该问题只影响静态检查启动，不影响上述 pytest 实际执行。提交前
   应在 CI 或已执行 `uv sync --locked` 的环境补跑 `uv run pyright`，并以 `RUN_DELIVERY_SMOKE=1` 执行完整
   Compose 冒烟，确认 worker health 进入 healthy 后再制作 Release。
+
+### 阶段 18 安全解析运行时兼容性验证记录（T182–T186，2026-08-26）
+
+- 安全解析改为由 `subprocess.Popen` 启动的模块化 runner：Celery prefork daemon 父进程可正常解析；请求和结果使用 JSON 元数据头加原始字节，不传递 pickle 对象或异常。超时强制 kill/reap，启动、通信、协议、未知异常及超限输出均收敛为 `20001`，空文本保持 `20010`。
+- worker healthcheck 只对 `celery@$(hostname)` 发送 `inspect ping --timeout=2`；Docker healthcheck 配置为 `interval: 15s`、`timeout: 10s`、`start_period: 20s`，避免广播等待和 CLI 初始化余量不足导致 healthy worker 被误判。
+- 解析器回归：`23 passed`；受影响资料流水线回归：`28 passed`；交付栈静态测试：`18 passed / 2 skipped`（Docker 门控）。Ruff format/check 全绿。
+- 代码全量 pytest（排除本工作站无 `uv` 且沙箱禁止工具链子进程的 `tests/unit/test_toolchain.py`）：`765 passed / 3 skipped`。未排除时仅这 5 项工具链自检失败；Pyright 同样因当前解释器未识别项目 `.venv` 的全仓缺少导入而不可用，须在 CI 或已执行 `uv sync --locked` 的环境补跑。
+- 服务器发布后必须执行完整 Compose 冒烟：确认 `docker compose ps` 中 worker 为 `healthy`，再上传一份 TXT/Markdown 资料，确认 parse attempt 成功并进入后续阶段；该实机验收不由本地 Docker 门控替代。
 
 ### 阶段 16 全局会话历史验证记录（T170–T174，2026-08-25/26）
 

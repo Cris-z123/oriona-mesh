@@ -92,11 +92,11 @@ services:
         condition: service_healthy
     # 进程存活不足以证明可消费任务；通过 broker 控制通道确认 worker 实际响应。
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping --timeout=5 | grep -q pong"]
-      interval: 10s
-      timeout: 8s
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping --destination \"celery@$$(hostname)\" --timeout=2 | grep -q pong"]
+      interval: 15s
+      timeout: 10s
       retries: 6
-      start_period: 15s
+      start_period: 20s
 
   frontend:
     image: ${FRONTEND_IMAGE:?set FRONTEND_IMAGE from the verified release manifest}

@@ -1,4 +1,4 @@
-"""markdown-it-py Markdown 解析器（T051 / quickstart 解析边界）。
+"""markdown-it-py Markdown 解析器（T051 / data-model.md 解析边界）。
 
 - 原始 HTML（含 ``<script>`` 等）不作为可执行 HTML 输出：
   从文本中剔除；
